@@ -1,0 +1,22 @@
+#ifndef _ERRORS_H
+#define	_ERRORS_H
+
+/* Códigos de erro do sistema */
+
+
+
+#define ERR_ACESS_DB    1000    /* Falha ao acessar a base de dados */
+#define ERR_ACESS_GPIO    1001  /* Falha para acessar barramento GPIO */
+#define ERR_ACESS_DISPLAY 1002  /* Falha para configura display */
+#define ERR_ACESS_KEYBOARD    1003  /* Falha para configurar teclado */
+#define ERR_ACESS_LOGFILE   1004    /* Falha para acessar arquivo de log */
+#define ERR_ACESS_MRP   1005    /* Falha para acessar MRP */
+
+#define ERR_INVALID_IP  1100
+
+
+/* TODO método para retornar string com descrição do erro */
+
+
+#endif	/* _ERRORS_H */
+

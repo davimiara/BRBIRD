@@ -1,0 +1,209 @@
+#ifndef _PRISMA_H
+#define	_PRISMA_H
+
+#include <sqlite3.h>
+#include <henry/general/henryGPIO.h>
+#include <henry/display/InterfaceDisplay.h>
+#include <henry/logger/logger.h>
+#include <henry/printer/printer.h>
+#include <henry/cardreader/cardReader.h>
+#include <henry/keyboard/gpiokeyboard.h>
+#include <henry/general/cache.h>
+#include <henry/sensor/sensor.h>
+//watchdog
+#include <henry/watchdog/watchdog.h>
+//rtc
+#include <henry/rtc/rtc.h>
+#include <henry/biometric/dsp.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+//dirManager
+#include <henry/general/dirManager.h>
+//leds
+#include <henry/general/leds.h>
+//audio
+#include <henry/audio/wave.h>
+//listener
+#include <henry/prisma/socket/listenerManager.h>
+//mrp
+#include <henry/prisma/mrp/mrpManager.h>
+//telematica
+#include <henry/telematica/telematica.h>
+//tamper
+#include <henry/prisma/tamper/tamper.h>
+
+#include "threader.h"
+#include "afdManager.h"
+#include "menu/menuPrisma.h"
+#include "menu/menuMain.h"
+#include "tamperVerifier.h"
+#include "dbPersistent.h"
+#include "menu/menuBiometric.h"
+
+class Prisma {
+public:
+
+    enum DISPLAY_TYPE {
+        DSP_16x2, DSP128x64
+    };
+
+    enum ALERT_LEVEL {
+        LVL_OK = 0x00, //Tudo OK
+        LVL_EXECUTING = 0x01, //Ação sendo executada
+        LVL_NO_PAPER = 0x02, //Sem papel
+        LVL_NO_MRP = 0x04, //Erro ao comunicar com a MRP
+        LVL_TAMPER = 0x08  //Tamper ativado
+    }; //níveis de alerta
+
+    Prisma();
+    Prisma(const Prisma& orig);
+    virtual ~Prisma();
+private:
+    sqlite3* db; //conexão do banco de dados
+    Logger* logger; //logger
+
+    int alertLevel; //Alerta do sistema
+
+    Configuration* configuration; //configurações do equipamento
+
+    MrpManager* mrpManager; //gerenciador da MRP
+
+    WatchDog* watchdog; //controle de watchdog
+
+    HRtc* rtc; //controle do rtc (data hora)
+
+    DbPersistent* dbPersistent; //verifica modificações no banco de dados
+
+    Cache* cacheKeyboard; //cache do teclado matricial
+    Cache* cacheCardReader; //cache das leitoras
+    Cache* cacheBiometry; //cache da biometria
+
+    InterfaceDisplay* display; //display 128x64
+    Leds* leds; //controle de leds
+    Wave* wave; //controle de áudio
+    GPIOKeyboard* keyboard; //teclado matricial
+    CardReader* cardReader; //leitoras de cartão
+    Dsp* biometric; //biometria
+    Telematica* telematica; //telematica
+    Tamper* tamper; //tamper
+    TamperVerifier* tamperVerifier; //verificador de tamper
+
+    /* Interface SPI - MRP */
+
+    Threader* keyboardCacheMonitor;
+    Threader* cardCacheMonitor;
+    Threader* inputInfoMonitor;
+    Threader* tamperMonitor;
+    Threader* databaseMonitor;
+
+    Printer* printer; //impressora
+    int paperStatus; //status de papel
+    int printerError; //status de papel
+
+    /* Sensores */
+    Sensor* sensorBattery; //controle do sensor de bateria
+    Sensor* sensorPaper; //controle do sensor de pouco papel
+    Sensor* sensorTamper; //controle do sensor de tamper
+
+    /* Contadores de tempo */
+    timeval lastWarningBatterySensor; //Último aviso de bateria
+    timeval lastWarningFewPaperSensor; //Último aviso de pouco papel
+    timeval lastWarningNoPaper; //Último aviso de sem papel
+    timeval lastWarningPrinterError; //Último aviso de erro de impressora
+
+    timeval lastTimePressedKey; //Momento do pressionamento da tecla
+
+    /* Acesso do usuário */
+    MenuPrisma* menuMain;
+    MenuPrisma* menuConfiguration;
+    MenuPrisma* menuAdmin;
+    MenuBiometric* menuBiometric;
+
+    AfdManager* afdManager; //gerenciador de AFD
+    DirManager* dirManager; //gerenciador de diretórios
+
+
+    ListenerManager* listenerManager; //gerenciador de sockets de comunicação
+
+    /* Inicialização do sistema */
+    int initGPIOpins(int iGpioFd);
+    int loadConfigurationPrisma();
+
+    /* Funções de controle de entrada de dados */
+    int setAlertLevel(Prisma::ALERT_LEVEL level, bool turnOn);
+
+
+    /* Eventos dos sensores */
+    static void batteryEventWrapper(void* object, void* temp);
+    static void paperEventWrapper(void* object, void* temp);
+    static void tamperEventWrapper(void* object, void* temp);
+
+    void batteryEvent(void* temp);
+    void paperEvent(void* temp);
+    void tamperEvent(void* temp);
+
+    /* Eventos da impressora */
+    static void printerEventWrapper(void* object, int code, int arg);
+    void printerEvent(int code, int arg);
+
+    /* Eventos de leitora */
+    static void cardReadedEventWrapper(void* object, char* temp);
+    void cardReadedEvent(char* temp); //recebe e armazena dados da leitora
+
+    /* Eventos de biometria */
+    static void biometricReadedEventWrapper(void* object,
+            unsigned int registration, unsigned char flag, bool ismaster);
+    void biometricReadedEvent(unsigned int registration, unsigned char flag,
+            bool ismaster); //recebe e trata dados da biometria
+
+    /* Eventos de teclado */
+    static void keyPressedEventWrapper(void* object, char temp);
+    static void keyReleasedEventWrapper(void* object, char temp);
+
+    void keyPressedEvent(char temp); //Armazena tecla presisonada
+    void keyReleasedEvent(char temp); //Armazena tecla solta
+
+
+    /* Caches */
+    static void verifyCardCacheWrapper(void* object, void* args);
+    static void verifyKeyboardCacheWrapper(void* object, void* args);
+    static void verifyInfoMonitorWrapper(void* object, void* args);
+    static void verifyTamperWrapper(void* object, void* args);
+    static void verifyDataBaseModificationsWrapper(void* object, void* args);
+
+    void verifyCardCache(void* args); //verifica a cache de cartões
+    void verifyKeyboardCache(void* args); //verifica a cache de teclado
+    void verifyInfoMonitor(void* args); //verifica a cache de dados
+    void verifyTamper(void* args); //verifica status do tamper
+    void verifyDataBaseModifications(void* args);
+
+    static void doAFDWrapper(void* object, void* args);
+    int doAFD();
+    static void doRegistryWrapper(void* object, void* args);
+    int doRegistry();
+    int doInstantEmission();
+    int doErrorMRP();
+
+    //controle de modificação de data e hora
+    static void changedDateTimeEventWrapper(void* object, tm* oldtime, tm* newTime);
+    void changedDateTimeEvent(tm* oldtime, tm* newTime);
+
+    static void dirManagerEventWrapper(void* object, int param);
+    void dirManagerEvent(int param);
+
+    static int requestedDateTimeEventWrapper(void* object, tm* dateTime);
+    int requestedDateTimeEvent(tm* dateTime);
+
+    int configureDSP();
+
+    int showMessage(string message, int x, int y);
+    int playAudio(string audio);
+
+public:
+
+    int init(const char* sDb, const char* sLogFile);
+    int terminate();
+
+};
+
+#endif	/* _PRISMA_H */
+

@@ -1,0 +1,14 @@
+#ifndef _DBPERSISTENT_H
+#define	_DBPERSISTENT_H
+
+class DbPersistent {
+public:
+    DbPersistent();
+    ~DbPersistent();
+
+public:
+    static int checkDbLog(void* conn);
+
+};
+
+#endif	/* _DBPERSISTENT_H */

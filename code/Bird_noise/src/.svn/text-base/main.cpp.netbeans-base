@@ -1,0 +1,349 @@
+/*
+ * 			HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Arquivo principal Prisma.
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 02/06/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ */
+
+#include <stdlib.h>
+#include <signal.h>
+#include <sstream>
+#include <sqlite3.h>
+
+#include <henry/general/henryutil.h>
+#include <henry/rtc/rtc.h>
+#include <henry/prisma/prismaUtil.h>
+#include <henry/prisma/dbPrisma/control/summerTime.h>
+#include <henry/prisma/dbPrisma/dao/summerTimeDao.h>
+#include <henry/rtc/rtc.h>
+#include <henry/prisma/dbPrisma/control/employee.h>
+#include <henry/prisma/dbPrisma/control/employeeReg.h>
+#include <henry/prisma/dbPrisma/control/employer.h>
+#include <henry/prisma/dbPrisma/dao/employeeDao.h>
+#include <henry/prisma/dbPrisma/dao/employeeRegDao.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+#include <henry/prisma/dbPrisma/dao/configurationDao.h>
+
+#include "../include/prisma.h"
+
+Prisma* prisma;
+
+void my_hdlr(int n) {
+    printf("SIGSEGV caught!\n");
+}
+
+int main(int argc, char** argv) {
+    /*
+    unsigned char value = 0;
+    printf("value - %d - 0x%02X \n", value, value);
+    value |= 0x02;
+    printf("value - %d - 0x%02X \n", value, value);
+    value |= 0x01;
+    printf("value - %d - 0x%02X \n", value, value);
+    if (!(value & 0x01)) {
+        printf("true\n");
+    }
+    value &= ~0x01;
+    printf("value - %d - 0x%02X \n", value, value);
+    if (!(value & 0x01)) {
+        printf("true\n");
+    }
+    */
+
+    /*
+        char teste[10] = "maçã";
+        char cedilha[10] = "ç";
+        char acomtio[10] = "ã";
+
+
+        unsigned char ced = 'ç';
+        unsigned char act = 'ã';
+
+        printf("%s\n", teste);
+        printf("%s\n", cedilha);
+        printf("%s\n", acomtio);
+        printf("\n");
+        printf("%c\n", ced);
+        printf("%c\n", act);
+        printf("\n");
+        printf("0x%02X\n", ced);
+        printf("0x%02X\n", act);
+    
+
+        printf("maça:\n");
+        for (int i = 0; i < 10; i++) {
+            printf("0x%02X ", teste[i]);
+        }
+        printf("\n");
+
+        printf("cedilha:\n");
+        for (int i = 0; i < 10; i++) {
+            printf("0x%02X ", cedilha[i]);
+        }
+        printf("\n");
+
+    
+        printf("acomtio:\n");
+        for (int i = 0; i < 10; i++) {
+            printf("0x%02X ", acomtio[i]);
+        }
+        printf("\n");
+     */
+
+
+
+    /*
+        string teste;
+        string left;
+        string right;
+    
+        fillWithStr(teste, &right, 10, "1", false);
+        fillWithStr(teste, &left, 10, "1", true);
+
+        printf("normal - |%s|\n", teste.data());
+        printf("left   - |%s|\n", left.data());
+        printf("right  - |%s|\n", right.data());
+
+     */
+    /*
+    TamperVerifier* tamperVerifier = new TamperVerifier("/home/eduardo/tp.cfg");
+    Tamper* tamper = new Tamper();
+    char msg[64] = "";
+    unsigned char ucCode[32];
+    tm dateTime;
+    memset(&dateTime, 0, sizeof (tm));
+    
+    if (!tamperVerifier->isBlocked()) {
+        tamperVerifier->setBlocked(456, dateTime);
+    }
+    
+    memset(&dateTime, 0, sizeof (tm));
+    
+    tamperVerifier->getDateTime(&dateTime);
+    tamper->encrypt(tamperVerifier->getWord(),
+            "000000000000000",
+            dateTime,
+            ucCode);
+     
+     */
+
+
+    /*
+    while (1) {
+        tm date1;
+        tm date2;
+
+        memset(&date1, 0, sizeof(struct tm));
+        memset(&date2, 0, sizeof(struct tm));
+
+        date1.tm_mday = 27;
+        date1.tm_mon = 06;
+        date1.tm_year = 110;
+        date1.tm_hour = 14;
+        date1.tm_min = 00;
+
+        date2.tm_mday = 28;
+        date2.tm_mon = 06;
+        date2.tm_year = 110;
+        date2.tm_hour = 14;
+        date2.tm_min = 00;
+
+        time_t time1, time2;
+
+        time1 = mktime(&date1);
+        time2 = mktime(&date2);
+
+        printf("time1 - %ld\n", time1);
+        printf("time2 - %ld\n", time2);
+
+        long int diff = time2 - time1; //diff in seconds
+
+        printf("diff - %ld\n", time2);
+
+        double minutesDiff = diff / 60;
+
+        printf("min diff - %g\n", minutesDiff);
+
+        printf("----------===----------\n");
+
+        sleep(1);
+    }
+     *
+     */
+    //TODO Tratamento de seg fault - reinicia programa e printa op Illegal
+    //signal(SIGSEGV, my_hdlr);
+    /*
+        time_t myTime = time(NULL);
+        tm dtTm;
+
+        localtime_r(&myTime, &dtTm);
+        myTime = mktime(&dtTm);
+
+        char date[512] = "";
+        sprintf(date, "%02d/%02d/%04d %02d:%02d",
+                            dtTm.tm_mday, dtTm.tm_mon + 1, dtTm.tm_year + 1900,
+                            dtTm.tm_hour, dtTm.tm_min);
+        printf("Data hora antes: %s\n", date);
+
+        //Calculando data hora de busca - 24 horas atrás...
+        printf("myTime: %ld\n", myTime);
+        myTime =  myTime - (60 * 60 * 24);//descontando 1 dia = 60s * 60m * 24hrs
+        localtime_r(&myTime, &dtTm);
+        printf("myTime: %ld\n", myTime);
+
+        sprintf(date, "%02d/%02d/%04d %02d:%02d",
+                            dtTm.tm_mday, dtTm.tm_mon + 1, dtTm.tm_year + 1900,
+                            dtTm.tm_hour, dtTm.tm_min);
+        printf("Data hora depois: %s\n", date);
+     */
+
+    /*
+        time_t time1;
+        time_t time2;
+
+        time(&time1);
+        sleep(5);
+        time(&time2);
+
+        printf("t1 - %ld\n", time1);
+        printf("t2 - %ld\n", time2);
+        printf("diff1 - %ld\n", time2 - time1);
+        printf("diff2 - %ld\n", time1 - time2);
+
+
+
+        char temp[64] = "08:08:02   24H  ";
+
+        if (validTime(temp) == 0) {
+            printf("%s\n",temp);
+        }
+     */
+    /*
+        sqlited* db;
+
+        int iRes = sqlited_open(&db, "root:root@127.0.0.1:6543/prisma");
+        if (iRes != SQLITED_OK) {
+        }
+
+
+
+        Employee* employee = new Employee();
+        EmployeeReg* employeeReg = new EmployeeReg();
+
+        if (searchEmployeebyRegistration(db, "0001", employee, employeeReg) == 0) {
+            printf("name - %s\n", employee->getName().data());
+            printf("reg - %s\n", employeeReg->getRegistration().data());
+            printf("Emp ID - %d\n", employeeReg->getEmpId());
+            printf("regID - %d\n", employeeReg->getId());
+        }
+
+        delete(employee);
+        delete(employeeReg);
+     */
+    /*
+    //Listando matrícula no banco
+        EmployeeRegDao* employeeRegDao = new EmployeeRegDao();
+        EmployeeReg* regList;       //Lista de empregados
+        int listSize = 0;           //tamanho da lista
+        char arg[64] = "";          //cláusula where
+        char cardTemp[21] = "";     //cartão temporário
+        fillWith((char*) "1", cardTemp, 20, '0', true);        //completando...
+        sprintf(arg, "WHERE registration = '%s'", cardTemp);
+        printf("listando usuário - %s\n", arg);
+        //listando matrículas
+        employeeRegDao->list(db, (void*) arg, (void**) &regList, &listSize);
+
+        if (listSize > 0) {
+            //carrega matrícula encontrada
+            EmployeeReg* employeeReg = &regList[0];
+
+            //carregando usuário
+            Employee* employee = new Employee();       //criando usuário
+            employee->setId(employeeReg->getEmpId());  //setando id
+
+            EmployeeDao* employeeDao = new EmployeeDao();   //dao
+            if (employeeDao->select(db, (void*) arg, (void*) employee) \
+                == 0) {
+
+                printf("%s\n", employee->getName().data());
+            }
+        }
+     */
+    /*
+        char date[18] = "";
+        struct tm dtTm;
+        char dayName[4] = "";
+        char strDay[3] = ""; //dia no mês
+        char strMonth[3] = ""; //mês
+        char strYear[5] = ""; //ano
+
+        time_t tempo = time(NULL);
+        struct tm* data;
+        data = localtime(&tempo);
+        memcpy(&dtTm, data, sizeof(tm));
+
+        SummerTimeDao* std = new SummerTimeDao();
+        SummerTime* list; //lista de data hora horário verão
+        int listSize = 0; //quantidade de itens retornados na lista
+        std->list(db, NULL, (void**) &list, &listSize);
+        SummerTime* st;
+        if (listSize > 0) {
+            st = &list[0];
+            st->getInitiation(&dtTm);
+        } else {
+            //obtendo data hora diretamente do RTC
+            //HRtc::getInstance()->getDateTime(&dtTm);
+        
+            st = SummerTime::getInstance(dtTm, dtTm);
+            if (std->insert(db, st) == 0) {
+                printf("OK\n");
+            }
+        }
+
+        getDayName(dtTm.tm_wday, dayName, 3);
+        sprintf(date, MENU_MSK_DATE, dtTm.tm_mday, (dtTm.tm_mon + 1),    \
+                dtTm.tm_year + 1900);
+
+        printf("date - %s\n", date);
+        if (validDate(date) == 0) {
+            printf("date - %s\n", date);
+        }
+
+        if (std->update(db, st) == 0) {
+            printf("OK\n");
+        }
+     */
+    /* TODO inicializa classe PRISMA porém se não conseguir printa algo no display */
+    /* caso print não funcione dá um beep ou acende leds */
+
+    //char* sUser, char* sPassword, char* sDb, char* sLogFile) {
+
+    stringstream log;
+    log << DIR_HOME << DIR_PRISMA << DIR_LOGS << FILE_LOG;
+    stringstream db;
+    db << "/usr/local/sqliteDBMS/data/prisma";
+
+    prisma = new Prisma();
+    prisma->init(db.str().c_str(), log.str().c_str());
+
+    printf("inicializado\n");
+    while (1) sleep(1);
+
+    return (EXIT_SUCCESS);
+}
+

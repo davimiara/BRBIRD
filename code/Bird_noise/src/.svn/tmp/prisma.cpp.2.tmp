@@ -1,0 +1,1481 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe principal responsável pelo gerenciamento dos periféricos do Prisma e
+ * gerenciamento de todo o sistema.
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 03/06/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor: 
+ * Data : 
+ * Alteração : 
+ *   
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+
+#include <fcntl.h>
+#include <stdio.h>
+#include <sstream>
+#include <sys/time.h>
+#include <henry/general/henryGPIO.h>
+#include <henry/general/henryutil.h>
+//display
+#include <henry/display/interfaceDisplay16x2.h>
+#include <henry/display/interfaceDisplay128x64.h>
+//sensor
+#include <henry/sensor/battery.h>
+#include <henry/sensor/paper.h>
+#include <henry/sensor/tamper.h>
+//cardreader
+#include <henry/cardreader/abatrack.h>
+#include <henry/cardreader/barcode.h>
+#include <henry/cardreader/wiegand.h>
+//biometria
+#include <henry/biometric/dsp.h>
+//mrp
+#include <henry/prisma/mrp/mrpManager.h>
+#include <henry/prisma/mrp/event/dateTimeEvent.h>
+#include <henry/prisma/mrp/command/mrpHeader.h>
+//database
+#include <henry/prisma/dbPrisma/control/employer.h>
+#include <henry/prisma/dbPrisma/dao/employerDao.h>
+#include <henry/prisma/dbPrisma/dao/configurationDao.h>
+//listener
+#include <henry/prisma/socket/command/statusCmd.h>
+//rtc
+#include <henry/rtc/rtc.h>
+#include <henry/general/dirManager.h>
+#include <henry/logger/logger.h>
+#include <henry/general/leds.h>
+#include <henry/cardreader/cardReader.h>
+#include <henry/general/cache.h>
+#include <henry/printer/printer.h>
+#include <henry/prisma/socket/listenerManager.h>
+#include <henry/display/InterfaceDisplay.h>
+#include <bits/basic_string.h>
+#include <unistd.h>
+#include <henry/prisma/prismaUtil.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+//menus
+#include "../include/menu/menuConfig.h"
+#include "../include/menu/menuAdmin.h"
+#include "../include/menu/menuTamper.h"
+//geral
+#include "../include/prisma.h"
+#include "../include/constants.h"
+#include "../include/registryManager.h"
+#include "../include/afdManager.h"
+#include "../include/instantEmission.h"
+#include "../include/menu/menuMessages.h"
+
+#define OK 0
+#define ERROR -1
+
+Prisma::Prisma() {
+    alertLevel = LVL_0;
+}
+
+Prisma::Prisma(const char* sUser, const char* sPassword, const char* sDb,
+        const char* sLogFile) {
+    /* Inicializando logger */
+
+    //TODO colocar essa inicilização no método INIT
+
+    //100ms de delay e gravando data e hora
+    logger = Logger::getInstance((char*) sLogFile, 1024, 10, true);
+    logger->startLog(); //inicializnado logger
+    logger->writeLineData((char*) "Logger inicializado");
+
+    /* Inicializando carregando banco de dados */
+    logger->writeLineData((char*) "Carregando informações do banco de dados");
+    char sConn[strlen(sUser) + strlen(sPassword) + strlen(sDb) + 2];
+    int iRes = SQLITED_OK;
+    sprintf(sConn, "%s:%s@%s", sUser, sPassword, sDb);
+    logger->writeLineData(sConn);
+    iRes = sqlited_open(&this->db, sConn);
+    if (iRes != SQLITED_OK) {
+        logger->writeLineData(sqlited_error);
+    }
+}
+
+Prisma::Prisma(const Prisma & orig) {
+}
+
+Prisma::~Prisma() {
+}
+
+int Prisma::initGPIOpins(int iGpioFd) {
+    try { //initializando interrupções do sistema
+        for (int i = 0; i < ARRAY_SIZE(eint_list); i++) {
+            cfgPin(iGpioFd, eint_list[i].pin, eint_list[i].cfg);
+            setPin(iGpioFd, eint_list[i].pin, eint_list[i].value);
+        }
+    } catch (...) {
+
+    }
+    return OK;
+}
+
+/**
+ * Carrega configurações do banco de dados.
+ * @return
+ */
+int Prisma::loadConfigurationPrisma() {
+    try {
+        logger->writeLineData((char*) "Carregando configurações");
+        configuration = loadConfiguration(db);
+        if (configuration == NULL) {
+            logger->writeLineData((char*) "Erro ao carregar configurações");
+            return ERROR;
+        }
+
+        logger->writeLineData((char*) "Carregando empregador");
+        Employer* employer = NULL;
+        employer = loadEmployer(db);
+        if (configuration == NULL) {
+            logger->writeLineData((char*) "Não há empregador");
+            //TODO Implementar thread para ficar mostrando mensagem de erro
+            return ERROR;
+        }
+        return OK;
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+/* Níveis de alerta do sistema */
+int Prisma::setAlertLevel(Prisma::ALERT_LEVEL level) {
+    try {
+        this->alertLevel = level;
+        switch (level) {
+            case LVL_0:
+            {
+                logger->writeLineData("Nível de alerta - 0");
+                if (configuration->getTpCardReader() != Configuration::CRT_NONE) {
+                    cardReader->startThd();
+                }
+                keyboard->startThd();
+
+                keyboardCacheMonitor->startThread();
+                cardCacheMonitor->startThread();
+
+                sensorPaper->startThd();
+                sensorBattery->startThd();
+                rtc->connect();
+
+                dirManager->monitor();
+            }
+                break;
+            case LVL_4:
+            { //Tamper - Todas as entradas serão desativadas - rep bloqueado
+                logger->writeLineData("Nível de alerta - 4");
+
+                cardReader->terminate();
+                rtc->terminate();
+                dirManager->terminate();
+
+                cardCacheMonitor->terminate();
+
+                cacheKeyboard->dumpCache();
+                cacheCardReader->dumpCache();
+                cacheBiometry->dumpCache();
+
+                sensorPaper->terminate();
+                sensorBattery->terminate();
+            }
+                break;
+            case LVL_3:
+            { //Falha ao comunicar com a MRP
+                logger->writeLineData("Nível de alerta - 3");
+
+                dirManager->terminate();
+
+                cardReader->terminate();
+                keyboardCacheMonitor->terminate();
+                cardCacheMonitor->terminate();
+
+                cacheKeyboard->dumpCache();
+                cacheCardReader->dumpCache();
+                cacheBiometry->dumpCache();
+
+                sensorPaper->terminate();
+            }
+                break;
+            case LVL_2:
+            { //Sem papel
+                logger->writeLineData("Nível de alerta - 2");
+                sensorPaper->terminate();
+                cardReader->terminate();
+            }
+                break;
+            case LVL_1:
+            { //Executando ação
+                logger->writeLineData("Nível de alerta - 1");
+                sensorPaper->terminate();
+                sensorBattery->terminate();
+
+                dirManager->terminate();
+                inputInfoMonitor->terminate();
+
+                cardCacheMonitor->terminate();
+            }
+                break;
+
+        }
+        return OK;
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+
+/* Eventos dos sensores */
+
+/* static */
+void Prisma::batteryEventWrapper(void* object, void* temp) {
+    ((Prisma*) object)->batteryEvent(temp);
+}
+
+/* static */
+void Prisma::paperEventWrapper(void* object, void* temp) {
+    ((Prisma*) object)->paperEvent(temp);
+}
+
+/* static */
+void Prisma::tamperEventWrapper(void* object, void* temp) {
+    ((Prisma*) object)->tamperEvent(temp);
+}
+
+/* Mostra evento na interface do menu principal a cada 10 segundos */
+void Prisma::batteryEvent(void* temp) {
+    int signal = (int) temp;
+    timeval now;
+    gettimeofday(&now, NULL);
+    if ((signal) && (now.tv_sec - lastWarningBatterySensor.tv_sec >
+            SENSOR_BATTERY_TIMEOUT)) {
+        logger->writeLineData((char*) "Sensor de bateria ativado");
+        StatusCmd* statusCmd = new StatusCmd(db);
+        statusCmd->setEventStatus(StatusCmd::ES_BT);
+        listenerManager->sendEventStatus(statusCmd);
+        delete(statusCmd);
+        gettimeofday(&lastWarningBatterySensor, NULL);
+        if ((menuMain != NULL) && (!menuMain->isPaused())) {
+            playAudio(AUDIO_BATTERY);
+            ((MenuMain*) menuMain)->showMessage(MSG_SNSR_BATERY, S_TO_US(2));
+        }
+    }
+}
+
+/* Mostra evento na interface do menu principal a cada 10 segundos */
+void Prisma::paperEvent(void* temp) {
+    int signal = (int) temp;
+    timeval now;
+    gettimeofday(&now, NULL);
+    if ((signal) && (now.tv_sec - lastWarningFewPaperSensor.tv_sec >
+            SENSOR_FEW_PAPER_TIMEOUT)) {
+        logger->writeLineData((char*) "Sensor de papel ativado");
+        StatusCmd* statusCmd = new StatusCmd(db);
+        statusCmd->setEventStatus(StatusCmd::ES_PP);
+        listenerManager->sendEventStatus(statusCmd);
+        delete(statusCmd);
+        gettimeofday(&lastWarningFewPaperSensor, NULL);
+        if ((menuMain != NULL) && (!menuMain->isPaused())) {
+            playAudio(AUDIO_FEW_PAPER);
+            ((MenuMain*) menuMain)->showMessage(MSG_SNSR_FEW_PAPER, S_TO_US(2));
+        }
+    }
+}
+
+void Prisma::tamperEvent(void* temp) {
+    int signal = (int) temp;
+    if (signal) {
+        this->menuMain->pause(true); //só reativa após desbloquear
+        if (!tamperVerifier->isBlocked()) {
+            logger->writeLineData((char*) "Sensor tamper ativado");
+            StatusCmd* statusCmd = new StatusCmd(db);
+            statusCmd->setEventStatus(StatusCmd::ES_TP);
+            listenerManager->sendEventStatus(statusCmd);
+            delete(statusCmd);
+            setAlertLevel(LVL_4);
+
+            logger->writeLineData((char*) "Bloqueando equipamento");
+            struct tm dtTm;
+            memset(&dtTm, 0, sizeof (tm));
+            rtc->getDateTime(&dtTm); //obtendo data hora diretamente do RTC            
+
+            tamperVerifier->setBlocked(signal, dtTm);
+            tamperMonitor->startThread();
+        }
+    }
+}
+
+/* static */
+void Prisma::printerEventWrapper(void* object, int code, int arg) {
+    ((Prisma*) object)->printerEvent(code, arg);
+}
+
+void Prisma::printerEvent(int code, int arg) {
+    try {
+        if (code == PRINTER_FLAG_END_PAPER) {
+            timeval now;
+            gettimeofday(&now, NULL);
+            if (now.tv_sec - lastWarningNoPaper.tv_sec >
+                    SENSOR_NO_PAPER_TIMEOUT) {
+                logger->writeLineData((char*) "Sem papel na impressora");
+                StatusCmd* statusCmd = new StatusCmd(db);
+                statusCmd->setEventStatus(StatusCmd::ES_SP);
+                listenerManager->sendEventStatus(statusCmd);
+                delete(statusCmd);
+                gettimeofday(&lastWarningNoPaper, NULL);
+                if ((menuMain != NULL) && (!menuMain->isPaused())) {
+                    ((MenuMain*) menuMain)->showMessage(
+                            MSG_SNSR_NO_PAPER, S_TO_US(2));
+                }
+            }
+            if (this->paperStatus != code) {
+                setAlertLevel(LVL_2);
+                this->paperStatus = code;
+            }
+        } else if (code == PRINTER_FLAG_COMMUNICATION_ERROR) {
+            timeval now;
+            gettimeofday(&now, NULL);
+            if (now.tv_sec - lastWarningCommunication.tv_sec >
+                    SENSOR_PRINTER_COMMUNICATION_TIMEOUT) {
+                logger->writeLineData((char*) "Erro de comunicacao com a impressora");
+                StatusCmd* statusCmd = new StatusCmd(db);
+                statusCmd->setEventStatus(StatusCmd::ES_SP); //TODO criar outro status
+                listenerManager->sendEventStatus(statusCmd);
+                delete(statusCmd);
+                gettimeofday(&lastWarningCommunication, NULL);
+                if ((menuMain != NULL) && (!menuMain->isPaused())) {
+                    ((MenuMain*) menuMain)->showMessage(
+                            MSG_SNSR_PRINTER_COMUNNICATION, S_TO_US(2));
+                }
+            }
+            if (this->communicationStatus != code) {
+                setAlertLevel(LVL_2);
+                this->communicationStatus = code;
+            }
+        } else if (code == PRINTER_FLAG_PAPER_OK) {
+            if (this->paperStatus != code) {
+                logger->writeLineData((char*) "Impressora alimentada");
+                this->paperStatus = code;
+                setAlertLevel(LVL_0);
+            }
+        }
+    } catch (...) {
+
+    }
+}
+
+
+/* Buffer leitora */
+
+/*static*/
+void Prisma::cardReadedEventWrapper(void* object, char* temp) {
+    ((Prisma*) object)->cardReadedEvent(temp);
+}
+
+/**
+ * Recebe e armazena dados da leitora.
+ * @param temp
+ */
+void Prisma::cardReadedEvent(char* temp) {
+    char msg[64];
+    sprintf(msg, "Cartão lido - %s", temp);
+    logger->writeLineData(msg);
+    if (strlen(temp) > 0) {
+        char card[32] = "";
+        strcpy(card, temp);
+        if (telematica->isInitialized()) { //verificando se utiliza telematica
+            logger->writeLineData((char*) "Verificando telemática");
+            string originalRegistration = card;
+            string decrypted = ""; //descriptografando...
+            if (telematica->decrypt(originalRegistration, decrypted,
+                    Telematica::DT_12) == OK) { //tenta primeiro com 12 dígitos
+                strcpy(card, decrypted.data());
+            } else if (telematica->decrypt(originalRegistration, decrypted,
+                    Telematica::DT_8) == OK) { //depois com 8 dígitos
+                strcpy(card, decrypted.data());
+            }
+        }
+        cacheCardReader->dumpCache();
+        //strlen(temp) + 1 para contar também o '\0'
+        cacheCardReader->addData((unsigned char*) temp, strlen(card) + 1);
+        doRegistry(); //iniciando a validação e gravação do registro
+    } else {
+#ifdef PRISMA_DISPLAY_128X64
+
+#else
+        ((MenuMain*) menuMain)->showMessage(MSG_REGISTRY_READ_ERROR, S_TO_US(2));
+#endif
+    }
+}
+
+void Prisma::biometricReadedEventWrapper(void* object,
+        unsigned int registration, unsigned char flag, bool ismaster) {
+    ((Prisma*) object)->biometricReadedEvent(registration, flag, ismaster);
+}
+
+void Prisma::biometricReadedEvent(unsigned int registration, unsigned char flag,
+        bool ismaster) {
+    char msg[64] = "";
+    sprintf(msg, "Registration da biometria inserida = %d", registration);
+    logger->writeLineData(msg);
+    if (flag == SUCESS) {
+        char nRegistration[20] = "";
+        sprintf(nRegistration, "%d", registration);
+        cacheCardReader->dumpCache();
+        cacheCardReader->addData((unsigned char*) nRegistration,
+                strlen(nRegistration) + 1);
+        doRegistry(); //iniciando a validação e gravação do registro
+
+        display->clearDsp();
+#ifdef PRISMA_DISPLAY_128X64
+
+#else
+    } else if (flag == NOT_FOUND) {
+        ((MenuMain*) menuMain)->showMessage(MSG_REGISTRY_NOT_FOUND, S_TO_US(2));
+    } else {
+        ((MenuMain*) menuMain)->showMessage(MSG_REGISTRY_READ_ERROR, S_TO_US(2));
+#endif
+    }
+    //setAlertLevel(Prisma::LVL_0); //TODO verificar se isto é necessario
+}
+
+/* Buffer teclado */
+
+/*static*/
+void Prisma::keyPressedEventWrapper(void* object, char temp) {
+    ((Prisma*) object)->keyPressedEvent(temp);
+}
+
+/*static*/
+void Prisma::keyReleasedEventWrapper(void* object, char temp) {
+    ((Prisma*) object)->keyReleasedEvent(temp);
+}
+
+/* Armazena tecla presisonada */
+void Prisma::keyPressedEvent(char temp) {
+    gettimeofday(&lastTimePressedKey, NULL);
+}
+
+/**
+ * //Armazena tecla solta
+ * @param temp
+ */
+void Prisma::keyReleasedEvent(char temp) {
+    unsigned char aux[1];
+    aux[0] = (unsigned char) temp;
+    cacheKeyboard->addData(aux, 1);
+}
+
+/* Caches */
+
+/*static*/
+void Prisma::verifyCardCacheWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyCardCache(args);
+}
+
+/*static*/
+void Prisma::verifyKeyboardCacheWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyKeyboardCache(args);
+}
+
+/*
+ * Verifica a cache de cartões
+ */
+void Prisma::verifyCardCache(void* args) {
+    int dataAvailable = cacheCardReader->dataAvaliable();
+    if (dataAvailable >= CARD_MAX_DIGITS) { //se cache atingiu tamanho máximo...
+        setAlertLevel(LVL_1);
+        char msg[64] = "";
+        unsigned char card[dataAvailable + 1];
+        memset(card, 0, dataAvailable + 1);
+        cacheCardReader->copyData(card, dataAvailable); //lendo cartão
+        menuMain->pause(true);
+        usleep(100000);
+        sprintf(msg, MSG_CANCEL_REGISTRY, (char*) card);
+        showMessage(msg, 0, 0);
+        //aguarda confirmação do usuário sobre entrada
+        int option = ((MenuMain*) menuMain)->readOptionMenu();
+        if ((option == MENU_OPT_CONFIRM) || (option == MENU_OPT_NEXT)) {
+            setAlertLevel(LVL_0);
+            cacheCardReader->addData((unsigned char*) "\0", 1);
+            doRegistry(); //realizando registro do ponto
+        } else {
+            setAlertLevel(LVL_0);
+            cacheCardReader->dumpCache();
+            menuMain->pause(false);
+        }
+    }
+    return;
+}
+
+/*static*/
+void Prisma::verifyInfoMonitorWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyInfoMonitor(args);
+}
+
+/* verifica a cache de cartões */
+void Prisma::verifyInfoMonitor(void* args) {
+    try {
+        if (this->alertLevel == 0) {
+            timeval now;
+            gettimeofday(&now, NULL);
+            if ((now.tv_sec - lastTimePressedKey.tv_sec > INPUT_INFO_TIMEOUT)) {
+                cacheCardReader->dumpCache(); //elimina o resto da cache
+                menuMain->pause(false);
+            }
+        }
+    } catch (...) {
+
+    }
+}
+
+/* static */
+void Prisma::verifyTamperWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyTamper(args);
+}
+
+void Prisma::verifyTamper(void* args) {
+    try {
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+
+#else        
+        ((InterfaceDisplay16x2*) display)->print(MSG_SNSR_TAMPER, 0, 0);
+#endif
+        sleep(1);
+    } catch (...) {
+
+    }
+}
+
+/* static */
+<<<<<<< .mine
+void Prisma::verifyDataBaseModificationsWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyDataBaseModifications(args);
+}
+
+void Prisma::verifyDataBaseModifications(void* args) {
+    try {
+        DbPersistent::checkDbLog(db);
+    } catch (...) {
+
+    }
+}
+
+/* static */
+=======
+void Prisma::verifyDataBaseModificationsWrapper(void* object, void* args) {
+    ((Prisma*) object)->verifyDataBaseModifications(args);
+}
+
+void Prisma::verifyDataBaseModifications(void* args) {
+    try {
+
+    } catch (...) {
+
+    }
+}
+
+/* static */
+>>>>>>> .r44
+void Prisma::doAFDWrapper(void* object, void* args) {
+    ((Prisma*) object)->doAFD();
+    return;
+}
+
+int Prisma::doAFD() {
+    try {
+        if (alertLevel < LVL_2) {
+            logger->writeLineData("Gerando AFD");
+            menuMain->pause(true); //pausando menu principal
+            setAlertLevel(Prisma::LVL_1);
+            afdManager = new AfdManager(db, display,
+                    MrpManager::getInstance((char*) DEF_MRP_DEV), logger,
+                    configuration, wave);
+            afdManager->generate(DIR_AFD); //gerando arquivo afd
+            do { //espera término da gravação do AFD para continuar
+                usleep(500000);
+            } while (afdManager->isRunning());
+            playAudio(AUDIO_AFD);
+            usleep(1000);
+            delete(afdManager);
+            afdManager = NULL;
+            dirManager->umontDir(DIR_AFD);
+            dirManager->eraseDir(DIR_AFD);
+            StatusCmd* statusCmd = new StatusCmd(db);
+            statusCmd->setEventStatus(StatusCmd::ES_AFD);
+            listenerManager->sendEventStatus(statusCmd);
+            delete(statusCmd);
+            setAlertLevel(Prisma::LVL_0);
+            menuMain->pause(false);
+            logger->writeLineData("Geração do AFD finalizada");
+        }
+    } catch (...) {
+        setAlertLevel(Prisma::LVL_0);
+    }
+    return ERROR;
+}
+
+/**
+ *
+ * @return
+ */
+int Prisma::doRegistry() {
+    try {
+        if (alertLevel == LVL_0) {
+            logger->writeLineData("Iniciando tratamento de registro");
+            //Verifica se existe cartão na cache
+            int dataAvailable = cacheCardReader->dataAvaliable();
+            if (dataAvailable > 0) {
+                setAlertLevel(Prisma::LVL_1);
+                unsigned char card[dataAvailable];
+                memset(card, 0, dataAvailable);
+                cacheCardReader->getData(card, dataAvailable); //lendo cartão
+                cacheCardReader->dumpCache(); //elimina o resto da cache
+                RegistryManager* regManager = new RegistryManager(db, printer,
+                        display, leds, wave, listenerManager, telematica);
+                regManager->setShowMessageEventHandler(menuMain,
+                        (void*) S_TO_US(1),
+                        MenuMain::showMessageWrapper);
+                string strCard;
+                strCard.assign((char*) card);
+                regManager->validate(strCard); //validando ponto
+                delete(regManager); //deletando gerenciador de registro
+                menuMain->pause(false);
+                inputInfoMonitor->terminate();
+                setAlertLevel(Prisma::LVL_0);
+                return OK;
+            }
+            logger->writeLineData("Tratamento de registro finalizado");
+        }
+    } catch (...) {
+        setAlertLevel(Prisma::LVL_0);
+    }
+    return ERROR;
+}
+
+/**
+ * Realiza a chamada da classe responsável pela validação do registro.
+ * @return
+ */
+int Prisma::doInstantEmission() {
+    int result = ERROR;
+    try {
+        if (alertLevel == LVL_0) {
+            logger->writeLineData("Gerando emissão instantânea");
+            setAlertLevel(Prisma::LVL_1);
+            menuMain->pause(true);
+            InstantEmissionManager* instantEmission =
+                    new InstantEmissionManager(db, display, configuration,
+                    MrpManager::getInstance((char*) DEF_MRP_DEV), logger, rtc,
+                    printer, wave);
+            instantEmission->generate();
+            do { //espera término da gravação do AFD para continuar
+                usleep(500000);
+            } while (instantEmission->isRunning());
+            usleep(1000);
+            delete(instantEmission);
+            instantEmission = NULL;
+            //resetando evento de impressora
+            printer->setEventHandler(this, &Prisma::printerEventWrapper);
+            menuMain->pause(false);
+            StatusCmd* statusCmd = new StatusCmd(db);
+            statusCmd->setEventStatus(StatusCmd::ES_EI);
+            listenerManager->sendEventStatus(statusCmd);
+            delete(statusCmd);
+            result = OK;
+            setAlertLevel(Prisma::LVL_0);
+            logger->writeLineData("Emissão instantânea finalizada");
+        }
+    } catch (...) {
+
+    }
+    return result;
+}
+
+int Prisma::doErrorMRP() {
+    try { //Erro ao comunicar com a MRP, travando sistema
+        this->menuMain->pause(true);
+        setAlertLevel(LVL_3);
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+        display = new InterfaceDisplay128x64(iGpioFd);
+#else
+        ((InterfaceDisplay16x2*) display)->clearDsp();
+        ((InterfaceDisplay16x2*) display)->setPosition(0, 0);
+        ((InterfaceDisplay16x2*) display)->print(MSG_ERROR_MRP);
+#endif
+        return OK;
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int Prisma::doBiometric(string registrationStr) {
+    int result = ERROR;
+    try {
+        printf("registrationStr = %s\n", registrationStr.data());
+        unsigned int resp = 0;
+        unsigned char flag = 0;
+        bool ismaster;
+        menuMain->pause(true);
+        //setAlertLevel(Prisma::LVL_1); //TODO verificar se isto é necessario
+
+        this->showMessage(MSG_REQUEST_FINGER, 0, 0);
+
+        if (registrationStr.empty()) {
+            result = biometric->identify(&resp, &ismaster, &flag);
+            char temp [20] = "";
+            printf("resp = %d\n", resp);
+            sprintf(temp, "%d", resp);
+            registrationStr = temp;
+            printf("registrationStr = %s\n", registrationStr.data());
+        } else {
+            int registration = atoi(registrationStr.data());
+            result = biometric->verify(registration, false,
+                    &resp, &ismaster, &flag);
+        }
+        if (flag == SUCESS) {
+            cacheCardReader->dumpCache();
+            cacheCardReader->addData((unsigned char*) registrationStr.data(),
+                    registrationStr.length());
+            doRegistry();
+            printf("Saiu do doRegistry\n");
+        }
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+#else
+        if (flag == NOT_FOUND) {
+            ((MenuMain*) menuMain)->showMessage(MSG_REGISTRY_NOT_FOUND, S_TO_US(2));
+            result = ERROR;
+        } else {
+            ((InterfaceDisplay16x2*) display)->setPosition(1, 0);
+            ((MenuMain*) menuMain)->showMessage(MSG_REGISTRY_READ_ERROR, S_TO_US(2));
+            result = ERROR;
+#endif
+        }
+        //setAlertLevel(Prisma::LVL_0); //TODO verificar se isto é necessario
+        menuMain->pause(false);
+    } catch (...) {
+        debug("Exception\n", "");
+    }
+    return result;
+}
+
+/**
+ * Verifica a cache de teclado.
+ * @param args
+ */
+void Prisma::verifyKeyboardCache(void* args) {
+    //Verifica tecla digitada.    
+    if (cacheKeyboard->dataAvaliable() > 0) {
+        char log[256] = "";
+        if (tamperVerifier->isBlocked()) {
+            //equipamento bloqueado
+            tamperMonitor->terminate();
+            MenuTamper* menuTamper = new MenuTamper(cacheKeyboard,
+                    display, db, tamperVerifier, tamper, sensorTamper);
+            menuTamper->executeMenu();
+            usleep(100000);
+            delete(menuTamper);
+            if (tamperVerifier->isBlocked()) {
+                //mantendo mensagem de bloqueio
+                tamperMonitor->startThread();
+            } else {
+                //desbloqueando equipamento
+                setAlertLevel(Prisma::LVL_0);
+                menuMain->pause(false);
+            }
+        } else {
+            //equipamento desbloqueado
+            unsigned char data[1];
+            cacheKeyboard->getData(data, 1); //pega somente um caractere digitado
+            cacheKeyboard->dumpCache(); //elimina o resto da cache
+
+            sprintf(log, "Dado lido: %c", data[0]);
+            logger->writeLineData(log);
+            timeval now;
+            gettimeofday(&now, NULL);
+            switch ((char) data[0]) {
+                case MENU_OPT_ENTER:
+                { //Inicializa menu
+                    menuMain->pause(true);
+                    setAlertLevel(Prisma::LVL_1);
+                    menuConfiguration = MenuConfig::getInstance(cacheKeyboard,
+                            display, db);
+                    menuConfiguration->executeMenu();
+                    menuMain->pause(false);
+                    setAlertLevel(Prisma::LVL_0);
+                }
+                    break;
+                case MENU_OPT_CONFIRM:
+                {
+                    if (configuration->getTpBiometric() == Configuration::BT_NONE) {
+                        if (cacheCardReader->dataAvaliable() > 0) {
+                            //adicionando \0 na string da cache card Reader
+                            cacheCardReader->addData((unsigned char*) "\0", 1);
+                            doRegistry(); //chamando doRegistry()
+                        }
+                    } else if (configuration->getVerify1_N()) {
+                        int size = cacheCardReader->dataAvaliable();
+                        printf("size = %d\n", size);
+                        size++;
+                        unsigned char temp[size];
+                        memset(temp, '\0', size);
+                        cacheCardReader->getData(temp, size);
+                        string registration = (char*) temp;
+                        printf("registration passada = %s\n", registration.data());
+                        this->doBiometric(registration);
+                    } else {
+                        printf("1 pra N desativado\n");
+                        int size = cacheCardReader->dataAvaliable();
+                        if (size > 0) {
+                            size++;
+                            unsigned char temp[size];
+                            memset(temp, '\0', size);
+                            if (cacheCardReader->getData(temp, size) > 0) {
+                                string registration = (char*) temp;
+                                this->doBiometric(registration);
+                            }
+                        }
+                    }
+                }
+                    break;
+                case MENU_OPT_CANCEL:
+                {
+                    if (cacheCardReader->dataAvaliable() > 0) {
+                        cacheCardReader->dumpCache();
+                        menuMain->pause(false);
+                    }
+                }
+                    break;
+                case MENU_OPT_ERASE:
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                {
+                    if (alertLevel == LVL_0) {
+                        //menu entrada de dados
+                        //fica recebendo numeros até completar e retorna matrícula lida
+                        logger->writeLineData((char*) "Entrada de dados");
+                        int dataAvailableCacheReader =
+                                cacheCardReader->dataAvaliable();
+                        sprintf(log, "Dados na cache de cartão: %d",
+                                dataAvailableCacheReader);
+                        /* Atenção: o '\0' do cartão é adicionado automaticamente após
+                           o usuário pressionar "confirm" ou atingir 20 dígitos */
+                        unsigned char card[dataAvailableCacheReader + 2];
+                        if (data[0] == MENU_OPT_ERASE) {
+                            if (dataAvailableCacheReader > 0) {
+                                //apagando último caractere
+                                cacheCardReader->getData(card, dataAvailableCacheReader);
+                                cacheCardReader->addData(card, --dataAvailableCacheReader);
+                                card[dataAvailableCacheReader] = '\0'; //setando final
+                                if (cacheCardReader->dataAvaliable() == 0) {
+                                    inputInfoMonitor->terminate();
+                                    menuMain->pause(false);
+                                    break;
+                                }
+                            }
+                        } else {
+                            inputInfoMonitor->startThread();
+                            if (dataAvailableCacheReader < CARD_MAX_DIGITS) {
+                                cacheCardReader->addData(data, 1); //adicionando
+                            }
+                            //copiando cache com novo dado já adicionado
+                            cacheCardReader->copyData(card, ++dataAvailableCacheReader);
+                            card[dataAvailableCacheReader] = '\0'; //setando final
+                        }
+
+                        if (dataAvailableCacheReader > 0) { //se houver dados...
+                            //Printando no display
+                            ((MenuMain*) menuMain)->print((char*) card);
+                        }
+                    }
+
+                }
+                    break;
+                case MENU_OPT_I:
+                {
+                    if ((now.tv_sec - lastTimePressedKey.tv_sec >
+                            INSTANT_EMISSION_TIMEOUT)) {
+                        menuMain->pause(true);
+                        logger->writeLineData((char*) "Emissão instantânea ativada");
+                        doInstantEmission();
+                        menuMain->pause(false);
+                    }
+                }
+                    break;
+                case MENU_OPT_SPACE:
+                {
+                    if ((now.tv_sec - lastTimePressedKey.tv_sec >
+                            MENU_CONFIG_TIMEOUT)) {
+                        logger->writeLineData((char*) "Inicializando menu "
+                                "de administração");
+                        menuMain->pause(true);
+                        menuAdmin = MenuAdmin::getInstance(cacheKeyboard,
+                                display, db);
+                        menuAdmin->executeMenu();
+                        menuMain->pause(false);
+                    }
+                }
+                    break;
+            }
+        }
+    }
+}
+
+/* static */
+void Prisma::changedDateTimeEventWrapper(void* object, tm* oldtime, tm * newTime) {
+    ((Prisma*) object)->changedDateTimeEvent(oldtime, newTime);
+}
+
+void Prisma::changedDateTimeEvent(tm* oldtime, tm * newTime) {
+    try {
+        char oldTimeStr[64] = ""; //gravando dados no log
+        char newTimeStr[64] = "";
+        char log[256] = "Gravando alteração de data e hora na MRP - %s -> %s";
+        getDateTime(oldtime, oldTimeStr);
+        getDateTime(newTime, newTimeStr);
+        sprintf(log, oldTimeStr, newTimeStr);
+        logger->writeLineData(log); //enviado para logger
+
+        //Obtendo instância da mrp
+        MrpManager* mrpManager = MrpManager::getInstance((char*) DEF_MRP_DEV);
+
+        int evtQtty = 0;
+        int trys = 0;
+        int result = ERROR;
+        do { //recebendo quantidade para calcular próximo NSR
+            result = mrpManager->receiveQttyEvents(&evtQtty);
+        } while ((result != MRP_ERROR_NONE) && (++trys < DEF_TRYS));
+
+        if (result == MRP_ERROR_NONE) {
+            Event* dateTime = new DateTimeEvent(++evtQtty, oldtime, newTime);
+            trys = 0;
+            do { //Tentando enviar o registro à MRP - 3 tentativas
+                result = mrpManager->sendEvent(dateTime);
+                if (result == MRP_ERROR_INVALID_NSR)
+                    dateTime->setNSR(++evtQtty); //incrementando nsr
+            } while ((result != MRP_ERROR_NONE) && (++trys < DEF_TRYS));
+
+            if (result == MRP_ERROR_NONE) {
+                string temp;
+                StatusCmd* statusCmd = new StatusCmd(db);
+                dateTime->getEventLine(temp);
+                statusCmd->setParam(temp);
+                statusCmd->setEventStatus(StatusCmd::ES_EV);
+                listenerManager->sendEventStatus(statusCmd);
+                delete(statusCmd);
+            }
+            delete(dateTime); //removendo registro da memória
+        }
+        if (result != MRP_ERROR_NONE) {
+            doErrorMRP();
+        }
+    } catch (...) {
+
+    }
+}
+
+/* static */
+void Prisma::dirManagerEventWrapper(void* object, int param) {
+    ((Prisma*) object)->dirManagerEvent(param);
+}
+
+void Prisma::dirManagerEvent(int param) {
+    try {
+        switch (param) {
+            case DIR_ADDED:
+            { //Diretório adicionado
+                logger->writeLineData("Diretório /usb1/ detectado");
+                Threader* threader = new Threader();
+                threader->setEventHandler(this, NULL, &Prisma::doAFDWrapper);
+                threader->startThread(); //executando método em thread
+            }
+                break;
+            case DIR_REMOVED:
+            { //Diretório removido
+                logger->writeLineData("Diretório /usb1/ removido");
+                if (afdManager != NULL) { //finalizando a geração do AFD
+                    afdManager->terminate();
+                }
+            }
+                break;
+        }
+    } catch (...) {
+
+    }
+}
+
+/**
+ * Configura o dsp com velocidade 115200.
+ */
+int Prisma::configureDSP() {
+    try {
+        unsigned char list[4]; //lista de usuários
+        int result = ERROR;
+        unsigned int resp = 0;
+        unsigned char flag;
+        //Verificando se está comunicando
+        result = biometric->listUsr(0, 1, &resp, &flag, list);
+        if ((result == OK) && (flag == SUCESS)) {
+            return OK;
+        } else {
+            logger->writeLineData((char*) "Configurando velocidade da biometria");
+            //Verifica se está comunicando em 9600
+            biometric->setBaudRate(Dsp::BR9600);
+            result = biometric->listUsr(0, 1, &resp, &flag, list);
+            if ((result == OK) && (flag == SUCESS)) {
+                //Troca velocidade para 115200
+                biometric->changeBaudRate(Dsp::BR115200, &flag);
+                return (flag == SUCESS) ? OK : ERROR;
+            }
+        }
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int Prisma::showMessage(string message, int x, int y) {
+    try {
+        if (display != NULL) {
+#ifdef PRISMA_DISPLAY_128X64
+
+#else
+            ((InterfaceDisplay16x2*) display)->clearDsp();
+            ((InterfaceDisplay16x2*) display)->setPosition(x, y);
+            ((InterfaceDisplay16x2*) display)->print(message.data());
+#endif
+        }
+    } catch (...) {
+
+    }
+    return OK;
+}
+
+int Prisma::playAudio(string audio) {
+    stringstream wavePath;
+    wavePath << DIR_HOME << DIR_PRISMA << DIR_AUDIO << audio;
+    return wave->play((char*) wavePath.str().data());
+}
+
+int Prisma::init() {
+
+    //Inicializando componentes de hardware
+    int iGpioFd = open(DEF_GPIOKEYBORD, O_RDWR);
+    if (iGpioFd < 0) {
+        logger->writeLineData((char*) "Erro ao inicializar barramento GPIO");
+        //TODO resetar placa
+    } else {
+        logger->writeLineData((char*) "Barramento GPIO aberto");
+    }
+
+    initGPIOpins(iGpioFd); //inicializando IRQ's não utilizados
+
+
+    if (loadConfigurationPrisma() != OK) {
+        //todo algo;
+
+    }
+
+    logger->writeLineData((char*) "Inicializando Sistema Prisma");
+
+    logger->writeLineData((char*) "Inicializando sistema watchdog");
+    watchdog = new WatchDog(DEF_WATCHDOG_DEV);
+    //TODO Reativar watchdog
+    /*
+    if (watchdog->watch() == OK) {
+        logger->writeLineData((char*) "Sucesso ao inicializar sistema watchdog");
+    } else {
+        logger->writeLineData((char*) "Falha ao inicializar sistema watchdog");
+    }
+     */
+
+
+    //Inicializando display
+    //printando nome e versão do fw
+    logger->writeLineData((char*) "Inicializando display");
+
+#ifdef PRISMA_DISPLAY_128X64
+    //((InterfaceDisplay128x64*) display)->
+    display = new InterfaceDisplay128x64(iGpioFd);
+#else
+    display = new InterfaceDisplay16x2(iGpioFd);
+    ((InterfaceDisplay16x2*) display)->print(FW_NAME);
+    ((InterfaceDisplay16x2*) display)->print(FW_VERSION, 1, 3);
+#endif
+
+    //Inicializando tamper
+    logger->writeLineData((char*) "Inicializando tamper");
+    tamper = new Tamper();
+    //verificando se equipamento está ou não bloqueado
+    stringstream tamperPath;
+    tamperPath << DIR_HOME << DIR_PRISMA << DIR_DOCS << FILE_TAMPER;
+    tamperVerifier = new TamperVerifier(tamperPath.str());
+    if (tamperVerifier->isBlocked()) {
+        logger->writeLineData((char*) "Equipamento bloqueado");
+    } else {
+        logger->writeLineData((char*) "Equipamento liberado");
+    }
+
+    //Inicializando sensores
+    logger->writeLineData((char*) "Inicializando sensores");
+
+    gettimeofday(&lastWarningBatterySensor, NULL); //timeout de evento de sensor
+    gettimeofday(&lastWarningFewPaperSensor, NULL); //timeout de evento de papel
+    gettimeofday(&lastWarningNoPaper, NULL); //timeout de evento de papel
+
+    sensorBattery = new BatterySensor(iGpioFd);
+    sensorPaper = new PaperSensor(iGpioFd);
+    sensorTamper = new TamperSensor(iGpioFd);
+
+    sensorBattery->setSensorEventHandler(this, Prisma::batteryEventWrapper);
+    sensorPaper->setSensorEventHandler(this, Prisma::paperEventWrapper);
+    sensorTamper->setSensorEventHandler(this, Prisma::tamperEventWrapper);
+
+    sensorBattery->startThd();
+    sensorPaper->startThd();
+    sensorTamper->startThd();
+
+
+    logger->writeLineData((char*) "Inicializando MRP");
+
+    //Inicializando a MRP
+    mrpManager = MrpManager::getInstance((char*) DEF_MRP_DEV);
+    if (mrpManager->init() == OK) {
+        logger->writeLineData((char*) "Mrp inicializada com sucesso");
+    } else {
+        logger->writeLineData((char*) "Falha ao inicializar mrp");
+        //TODO mensagem no display e bloqueio do equipamento
+    }
+
+    logger->writeLineData((char*) "Inicializando controle de leds");
+
+    //Inicializando leds
+    leds = new Leds(iGpioFd);
+    leds->setLed(Leds::LT_NONE);
+
+    logger->writeLineData((char*) "Inicializando sistema de áudio");
+
+    //Inicializando áudio
+    wave = Wave::getInstance();
+    wave->init(DEF_AUDIO_DEVICE);
+    //configurando volume do áudio
+    wave->setVolume(configuration->getVolume() * 10);
+    //playAudio(AUDIO_INITIALIZE);
+
+    logger->writeLineData((char*) "Inicializando rtc");
+
+    //Inicializando rtc - controle de data e hora do sistema
+    rtc = HRtc::getInstance((char*) DEF_I2CBUS);
+    if (rtc->connect() == OK) {
+        logger->writeLineData((char*) "Rtc inicializado com sucesso");
+        rtc->setChangedDateTimeEventHandler(this, Prisma::changedDateTimeEventWrapper);
+    } else {
+        logger->writeLineData((char*) "Falha ao abrir canal i2c com rtc");
+        //TODO mensagem no display e bloqueio do equipamento
+    }
+
+    logger->writeLineData((char*) "Inicializando entrada de dados");
+
+    //Inicializando teclado matricial
+    keyboard = new GPIOKeyboard(iGpioFd);
+
+    //Inicializando leitoras de cartões
+    switch (configuration->getTpCardReader()) {
+        case Configuration::CRT_WIEGAND: cardReader = new Wiegand(iGpioFd);
+            break;
+        case Configuration::CRT_ABATRACKII: cardReader = new Abatrack(iGpioFd);
+            break;
+        case Configuration::CRT_NONE: cardReader = new Abatrack(iGpioFd);
+            break;
+            //case Configuration::CRT_BARCODE: cardReader = new Barcode(iGpioFd);
+        default: cardReader = new Barcode(iGpioFd);
+            break;
+    }
+
+    //Inicializando biometria
+    //TODO alterar Dsp para /dev/ttyS0 para a versão final
+    logger->writeLineData((char*) "Inicializando biometria");
+    biometric = Dsp::getInstance((char*) DEF_DSP_DEV);
+    if (configuration->getTpBiometric() != Configuration::BT_NONE) {
+        int result = biometric->init();
+        if (result == OK) {
+            result = this->configureDSP();
+        }
+        logger->writeLineData(
+                (result == OK) ? (char*) "Biometria inicializada com sucesso" :
+                (char*) "Falha ao inicializar biometria");
+        biometric->setDspEventHandler(this, &Prisma::biometricReadedEventWrapper);
+    }
+
+    logger->writeLineData((char*) "Inicializando módulo telemática");
+    telematica = new Telematica();
+    stringstream telematicaPath;
+    telematicaPath << DIR_HOME << DIR_PRISMA << DIR_DOCS << FILE_TELEMATICA;
+    if (access(telematicaPath.str().data(), F_OK) == OK) {
+        if (telematica->init(telematicaPath.str()) == OK) {
+            logger->writeLineData((char*) "Sucesso para inicializar módulo telemática");
+        } else {
+            logger->writeLineData((char*) "Falha para inicializar módulo telemática");
+        }
+    } else {
+        logger->writeLineData((char*) "Não há arquivo telemática");
+    }
+
+    logger->writeLineData((char*) "Inicializando impressora");
+
+    //Inicializando impressora
+    printer = new Printer();
+    if (printer->init((char*) DEF_PRINTER_DEV) == OK) {
+        logger->writeLineData((char*) "Impressora inicializada com sucesso");
+        printer->setEventHandler(this, &Prisma::printerEventWrapper);
+
+        paperStatus = PRINTER_FLAG_PAPER_OK;
+        communicationStatus = PRINTER_FLAG_COMMUNICATION_OK;
+
+        //TODO - Descomentar na versão final
+        //printer->print((char*) MSG_RECEIPT_HEADER, Printer::FM_PRINTER,
+        //        Printer::CUT_NONE);
+    } else {
+        logger->writeLineData((char*) "Falha ao inicializar impressora");
+        //TODO mensagem no display e bloqueio do equipamento
+    }
+
+
+    logger->writeLineData((char*) "Inicializando caches e controle de threads");
+
+    //Inicializando buffers de entrada
+    cacheKeyboard = new Cache();
+    cacheCardReader = new Cache();
+    cacheBiometry = new Cache();
+
+
+    logger->writeLineData((char*) "Inicializando threads de leitura de dados");
+
+    //Inicializando threads de leitura de dados
+    keyboard->setPressedButtonEventHandler(this, &Prisma::keyPressedEventWrapper);
+    keyboard->setReleasedButtonEventHandler(this, &Prisma::keyReleasedEventWrapper);
+    keyboard->startThd();
+
+    cardReader->setCardReadEventHandler(this, &Prisma::cardReadedEventWrapper);
+    if (configuration->getTpCardReader() != Configuration::CRT_NONE) {
+        cardReader->startThd();
+    }
+
+    logger->writeLineData((char*) "Criando menus");
+    menuMain = MenuMain::getInstance(cacheKeyboard, display, db);
+
+    logger->writeLineData((char*) "Inicializando threads auxiliares");
+
+
+    logger->writeLineData((char*) "Criando thread de verificação cache de "
+            "teclado");
+    //Criando thread de verificação cache de teclado
+    keyboardCacheMonitor = new Threader(10);
+    keyboardCacheMonitor->setEventHandler(this, NULL,
+            &Prisma::verifyKeyboardCacheWrapper);
+    keyboardCacheMonitor->startThread();
+
+    logger->writeLineData((char*) "Criando thread de verificação de cache de "
+            "cartões");
+    //Criando thread de verificação de cache de cartões    
+    cardCacheMonitor = new Threader(10);
+    cardCacheMonitor->setEventHandler(this, NULL,
+            &Prisma::verifyCardCacheWrapper);
+    cardCacheMonitor->startThread();
+
+    inputInfoMonitor = new Threader(500);
+    inputInfoMonitor->setEventHandler(this, NULL,
+            &Prisma::verifyInfoMonitorWrapper);
+
+    tamperMonitor = new Threader(100);
+    tamperMonitor->setEventHandler(this, NULL, &Prisma::verifyTamperWrapper);
+
+<<<<<<< .mine
+    //TODO adicionar database monitor no setalertlevel
+    databaseMonitor = new Threader(500);
+    databaseMonitor->setEventHandler(this, NULL ,
+            &Prisma::verifyDataBaseModificationsWrapper);
+    databaseMonitor->startThread();
+=======
+    databaseMonitor = new Threader(100);
+    databaseMonitor->setEventHandler(this, NULL,
+            &Prisma::verifyDataBaseModificationsWrapper);
+>>>>>>> .r44
+
+
+    logger->writeLineData((char*) "Inicializando gerenciador do gerador de AFD");
+    //Inicializando gerenciador do gerador de AFD
+    afdManager = NULL;
+
+    dirManager = new DirManager(DIR_AFD, 100);
+    dirManager->setDirMonitorEventHandler(this, &Prisma::dirManagerEventWrapper);
+    dirManager->umontDir(DIR_AFD);
+    dirManager->eraseDir(DIR_AFD);
+    if (dirManager->monitor() == OK) {
+        logger->writeLineData((char*) "Gerenciador de diretórios inicializado "
+                "com sucesso");
+    } else {
+        logger->writeLineData((char*) "Falha ao inicializar gerenciador de "
+                "diretórios");
+        //TODO mensagem no display e bloqueio do equipamento pois não poderá
+        //gerar AFD
+    }
+
+    //aproveitando instância do dirManager para criar diretórios necessários
+    stringstream dirDocs;
+    dirDocs << DIR_HOME << DIR_PRISMA << DIR_DOCS;
+    if (access(dirDocs.str().data(), F_OK) != OK) {
+        dirManager->createDir(dirDocs.str());
+    }
+    stringstream dirLogs;
+    dirLogs << DIR_HOME << DIR_PRISMA << DIR_LOGS;
+    if (access(dirLogs.str().data(), F_OK) != OK) {
+        dirManager->createDir(dirLogs.str());
+    }
+
+    logger->writeLineData((char*) "Criando gerenciador de sockets");
+
+    listenerManager = ListenerManager::getInstance(db);
+    if (listenerManager->initialize(configuration) == OK) {
+        logger->writeLineData((char*) "Gerenciador de sockets inicializado "
+                "com sucesso");
+    } else {
+        logger->writeLineData((char*) "Falha ao inicializar gerenciador de "
+                "sockets");
+        //TODO mensagem no display - equipamento está sem comunicação
+    }
+
+    sleep(1);
+
+    if (tamperVerifier->isBlocked()) {
+        setAlertLevel(LVL_4);
+        tamperMonitor->startThread();
+    }
+
+    //Inicializando menu principal
+    logger->writeLineData((char*) "Inicializando menu principal");
+    menuMain = MenuMain::getInstance(cacheKeyboard, display, db);
+    menuMain->executeMenu();
+
+    return OK;
+}
+
+int Prisma::terminate() {
+    try {
+        logger->writeLineData((char*) "Finalizando Sistema Prisma");
+
+        //Finalizando componentes de hardware
+
+        //Finalizando threads de controle
+        logger->writeLineData((char*) "Finalizando threads de controle");
+
+        keyboardCacheMonitor->terminate();
+        cardCacheMonitor->terminate();
+        inputInfoMonitor->terminate();
+
+
+        //Finalizando menu principal
+        logger->writeLineData((char*) "Finalizando menu principal");
+
+        menuMain->terminate();
+        delete(menuMain);
+
+
+        //Finalizando threads de leitura de dados
+        logger->writeLineData((char*) "Finalizando threads de leitura de "
+                "dados");
+
+        printf("finalizando thread leitura\n");
+
+        keyboard->terminate();
+        keyboard->setPressedButtonEventHandler(this, NULL);
+        keyboard->setReleasedButtonEventHandler(this, NULL);
+        delete(keyboard);
+
+        printf("finalizando thread card reader\n");
+
+        cardReader->terminate();
+        cardReader->setCardReadEventHandler(this, NULL);
+        delete(cardReader);
+
+        printf("finalizando thread caches\n");
+
+        /*
+                logger->writeLineData((char*) "Finalizando caches");
+
+                //FIXME Provável erro aqui
+                cacheKeyboard->dumpCache();
+                cacheCardReader->dumpCache();
+                delete(cacheKeyboard);
+                delete(cacheCardReader);
+         */
+
+        logger->writeLineData((char*) "Finalizando sensores");
+
+
+        printf("finalizando rtc\n");
+        rtc->setChangedDateTimeEventHandler(this, NULL);
+        rtc->terminate();
+        delete(rtc);
+
+        printf("finalizando sensores\n");
+
+        sensorBattery->setSensorEventHandler(this, NULL);
+        sensorBattery->terminate();
+        delete(sensorBattery);
+        sensorPaper->setSensorEventHandler(this, NULL);
+        sensorPaper->terminate();
+        delete(sensorPaper);
+        sensorTamper->setSensorEventHandler(this, NULL);
+        sensorTamper->terminate();
+        delete(sensorTamper);
+
+        // Finalizando display
+        //printando nome e versão do fw
+        logger->writeLineData((char*) "Finalizando display");
+
+
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+        display = new InterfaceDisplay128x64(iGpioFd);
+#else
+        ((InterfaceDisplay16x2*) display)->~InterfaceDisplay16x2();
+#endif
+
+        logger->terminate();
+        delete(logger);
+
+    } catch (...) {
+
+    }
+    return 0;
+}

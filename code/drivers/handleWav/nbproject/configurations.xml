@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="80">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df name="handleWav" root=".">
+      <df name="bin">
+      </df>
+      <df name="docs">
+      </df>
+      <df name="include">
+        <in>chanmap.h</in>
+        <in>common.h</in>
+        <in>config.h</in>
+        <in>ima_oki_adpcm.h</in>
+        <in>ogg.h</in>
+        <in>sf_unistd.h</in>
+        <in>sfconfig.h</in>
+        <in>sfendian.h</in>
+        <in>sndfile.h</in>
+        <in>test_main.h</in>
+        <in>wav_w64.h</in>
+      </df>
+      <df name="lib">
+      </df>
+      <df name="src">
+        <in>aiff.c</in>
+        <in>alaw.c</in>
+        <in>au.c</in>
+        <in>audio_detect.c</in>
+        <in>avr.c</in>
+        <in>broadcast.c</in>
+        <in>caf.c</in>
+        <in>chanmap.c</in>
+        <in>chunk.c</in>
+        <in>command.c</in>
+        <in>common.c</in>
+        <in>dither.c</in>
+        <in>double64.c</in>
+        <in>dwd.c</in>
+        <in>dwvw.c</in>
+        <in>file_io.c</in>
+        <in>flac.c</in>
+        <in>float32.c</in>
+        <in>g72x.c</in>
+        <in>gsm610.c</in>
+        <in>htk.c</in>
+        <in>id3.c</in>
+        <in>ima_adpcm.c</in>
+        <in>ima_oki_adpcm.c</in>
+        <in>interleave.c</in>
+        <in>ircam.c</in>
+        <in>macbinary3.c</in>
+        <in>macos.c</in>
+        <in>mat4.c</in>
+        <in>mat5.c</in>
+        <in>mpc2k.c</in>
+        <in>ms_adpcm.c</in>
+        <in>nist.c</in>
+        <in>ogg.c</in>
+        <in>ogg_pcm.c</in>
+        <in>ogg_speex.c</in>
+        <in>ogg_vorbis.c</in>
+        <in>paf.c</in>
+        <in>pcm.c</in>
+        <in>pvf.c</in>
+        <in>raw.c</in>
+        <in>rf64.c</in>
+        <in>rx2.c</in>
+        <in>sd2.c</in>
+        <in>sds.c</in>
+        <in>sndfile.c</in>
+        <in>strings.c</in>
+        <in>svx.c</in>
+        <in>test_audio_detect.c</in>
+        <in>test_broadcast_var.c</in>
+        <in>test_conversions.c</in>
+        <in>test_endswap.c</in>
+        <in>test_file_io.c</in>
+        <in>test_float.c</in>
+        <in>test_ima_oki_adpcm.c</in>
+        <in>test_log_printf.c</in>
+        <in>test_main.c</in>
+        <in>test_strncpy_crlf.c</in>
+        <in>txw.c</in>
+        <in>ulaw.c</in>
+        <in>voc.c</in>
+        <in>vox_adpcm.c</in>
+        <in>w64.c</in>
+        <in>wav.c</in>
+        <in>wav_w64.c</in>
+        <in>windows.c</in>
+        <in>wve.c</in>
+        <in>xi.c</in>
+      </df>
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="Important Files"
+                   projectFiles="false"
+                   kind="IMPORTANT_FILES_FOLDER">
+      <itemPath>Makefile</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <remote-sources-mode>LOCAL_SOURCES</remote-sources-mode>
+        <compilerSet>default</compilerSet>
+      </toolsSet>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile clean</cleanCommand>
+          <executablePath></executablePath>
+          <cTool>
+            <incDir>
+              <pElem>.</pElem>
+            </incDir>
+          </cTool>
+        </makeTool>
+      </makefileType>
+      <item path="include/chanmap.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/common.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/config.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/ima_oki_adpcm.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/ogg.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/sf_unistd.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/sfconfig.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/sfendian.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/sndfile.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/test_main.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="include/wav_w64.h" ex="true" tool="3" flavor="0">
+      </item>
+    </conf>
+  </confs>
+</configurationDescriptor>

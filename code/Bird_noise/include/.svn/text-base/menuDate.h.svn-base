@@ -1,0 +1,16 @@
+#ifndef _MENUDATA_H
+#define	_MENUDATA_H
+
+#include "menu.h"
+
+class MenuData : private Menu {
+public:
+    MenuData(Cache* keyboardCache, InterfaceDisplay16x2* display16x2);
+    MenuData(Cache* keyboardCache, InterfaceDisplay128x64* display128x64);
+    virtual ~MenuData();
+private:
+
+};
+
+#endif	/* _MENUDATA_H */
+

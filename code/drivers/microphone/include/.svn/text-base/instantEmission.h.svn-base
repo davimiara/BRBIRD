@@ -1,0 +1,48 @@
+#ifndef _INSTANTEMISSION_H
+#define	_INSTANTEMISSION_H
+
+#include <henry/general/hthread.h>
+#include <henry/rtc/rtc.h>
+#include <henry/printer/printer.h>
+#include <henry/display/InterfaceDisplay.h>
+#include <henry/prisma/mrp/mrpManager.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+#include <henry/logger/logger.h>
+#include <henry/audio/wave.h>
+
+class InstantEmissionManager : private Hthread {
+public:
+    InstantEmissionManager(void* db, InterfaceDisplay* display,
+            Configuration* configuration, MrpManager* mrpManager,
+            Logger* logger, HRtc* hrtc, Printer* printer,  Wave* wave);
+    
+    virtual ~InstantEmissionManager();
+    
+private:
+    void* db;
+    InterfaceDisplay* display;
+    Configuration* configuration;
+    MrpManager* mrpManager;
+    Logger* logger;
+    HRtc* hrtc;
+    Printer* printer;
+    Wave* wave;
+    bool terminated;
+    bool running;
+    int status;
+    int printerLine;
+
+    static void printerEventWrapper(void* object, int code, int arg);
+    void printerEvent(int code, int arg);
+    void doStatus(int qtty, int total);
+    int exec();
+
+public:
+    int generate();
+    void terminate();
+    bool isRunning();
+    int getStatus();
+
+};
+
+#endif	/* _INSTANTEMISSION_H */

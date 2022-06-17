@@ -1,0 +1,115 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe responsável por executar a chamada de determinado trecho de código
+ * em thread.
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 03/06/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+
+#include <unistd.h>
+#include <stdio.h>
+#include <henry/general/hthread.h>
+#include "../include/threader.h"
+
+Threader::Threader() {
+    init();
+    this->once = true;
+}
+
+Threader::Threader(int interval) {
+    init();
+    this->once = false;
+    this->interval = interval;
+}
+
+Threader::~Threader() {
+    this->interval = 1;
+    this->eventHandler = NULL;
+    this->terminate();
+}
+
+void Threader::init() {
+    terminated = false;
+    enabled = true;
+    running = false;
+    this->args = NULL;    
+}
+
+int Threader::exec() {
+    if (this->once) {
+        if (this->eventHandler != NULL) {
+            this->eventHandler(this->object, this->args);
+        }
+    } else {
+        while ((!this->terminated) && (this->enabled)) {
+            if (this->eventHandler != NULL) {
+                this->eventHandler(this->object, this->args);
+            }
+            //TODO Sistema de verificação de finalização de thread enquanto dá delay
+            usleep(this->interval * 1000);
+        }
+    }
+    this->running = false;
+    this->detach(); //removendo thread
+    if (this->once) {
+        delete(this); //se for rodar só uma vez auto deleta
+    }
+    return 0;
+}
+
+void Threader::setEventHandler(void* object, void* args,
+        void (*function) (void* object, void* args)) {
+    this->object = object;
+    this->args = args;
+    this->eventHandler = function;
+}
+
+void Threader::setEnable(bool enabled) {
+    this->enabled = enabled;
+}
+
+bool Threader::isEnable() {
+    return this->enabled;
+}
+
+void Threader::startThread() {
+    if (!isRunnig()) {
+        this->terminated = false;
+        this->running = true;
+        this->start();
+    }
+}
+
+void Threader::terminate() {
+    this->terminated = true;
+}
+
+bool Threader::isRunnig() {
+    return this->running;
+}
+
+void* Threader::getArgs() {
+    return this->args;
+}
+
+void Threader::setArgs(void* args) {
+    this->args = args;
+}

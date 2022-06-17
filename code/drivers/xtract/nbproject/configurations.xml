@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="80">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df name="xtract" root=".">
+      <df name="bin">
+      </df>
+      <df name="include">
+        <in>libxtract.h</in>
+        <in>xtract_delta.h</in>
+        <in>xtract_globals_private.h</in>
+        <in>xtract_helper.h</in>
+        <in>xtract_macros.h</in>
+        <in>xtract_macros_private.h</in>
+        <in>xtract_scalar.h</in>
+        <in>xtract_types.h</in>
+        <in>xtract_vector.h</in>
+      </df>
+      <df name="lib">
+      </df>
+      <df name="src">
+        <in>delta.cpp</in>
+        <in>descriptors.cpp</in>
+        <in>fini.cpp</in>
+        <in>helper.cpp</in>
+        <in>init.cpp</in>
+        <in>libxtract.cpp</in>
+        <in>scalar.cpp</in>
+        <in>vector.cpp</in>
+      </df>
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="Important Files"
+                   projectFiles="false"
+                   kind="IMPORTANT_FILES_FOLDER">
+      <itemPath>Makefile</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <remote-sources-mode>LOCAL_SOURCES</remote-sources-mode>
+        <compilerSet>default</compilerSet>
+      </toolsSet>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile clean</cleanCommand>
+          <executablePath></executablePath>
+          <cTool>
+            <incDir>
+              <pElem>.</pElem>
+            </incDir>
+          </cTool>
+          <ccTool>
+            <incDir>
+              <pElem>.</pElem>
+            </incDir>
+          </ccTool>
+        </makeTool>
+      </makefileType>
+    </conf>
+  </confs>
+</configurationDescriptor>

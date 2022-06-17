@@ -1,0 +1,328 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe responsável pelo gerenciamento de registros de ponto.
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 20/06/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+#include <time.h>
+#include <string>
+#include <sstream>
+#include <henry/prisma/mrp/mrpManager.h>
+#include <henry/prisma/mrp/event/registryEvent.h>
+#include <henry/prisma/mrp/command/receiveEventQtty.h>
+#include <henry/prisma/mrp/command/mrpHeader.h>
+#include <henry/logger/logger.h>
+#include <henry/general/henryutil.h>
+#include <henry/prisma/prismaUtil.h>
+#include <henry/rtc/rtc.h>
+#include <henry/prisma/dbPrisma/control/employee.h>
+#include <henry/prisma/dbPrisma/control/employeeReg.h>
+#include <henry/prisma/dbPrisma/control/employer.h>
+#include <henry/prisma/dbPrisma/dao/employeeDao.h>
+#include <henry/prisma/dbPrisma/dao/employeeRegDao.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+#include <henry/general/leds.h>
+#include <henry/cardreader/abatrack.h>
+#include <henry/printer/printer.h>
+#include <henry/prisma/mrp/command/mrpHeader.h>
+//listener
+#include <henry/prisma/socket/command/statusCmd.h>
+#include <henry/prisma/mrp/event/event.h>
+#include <henry/display/interfaceDisplay16x2.h>
+#include "../include/constants.h"
+#include "../include/registryManager.h"
+#include "../include/menu/menuMessages.h"
+
+using namespace std;
+
+#define OK 0
+#define ERROR -1
+
+RegistryManager::RegistryManager(void* db, Configuration* configuration,
+        Printer* printer, InterfaceDisplay* display, Leds* leds, Wave* wave,
+        Dsp* biometric, ListenerManager* listenerManager,
+        Telematica* telematica) {
+    this->db = db;
+    this->configuration = configuration;
+    this->printer = printer;
+    this->display = display;
+    this->leds = leds;
+    this->wave = wave;
+    this->biometric = biometric;
+    this->listenerManager = listenerManager;
+    this->telematica = telematica;
+    this->showMessageEventHandler = NULL;
+}
+
+RegistryManager::~RegistryManager() {
+    this->showMessageEventHandler = NULL;
+}
+
+int RegistryManager::setShowMessageEventHandler(void* obj, void* arg,
+        void (*function) (void* object, void* message, void* arg2)) {
+    this->object = obj;
+    this->arg2 = arg;
+    this->showMessageEventHandler = function;
+    return OK;
+}
+
+int RegistryManager::validate(string card) {
+    try {
+        Logger* logger = Logger::getInstance();
+        int result = OK;
+        bool bioVerified = false;
+        //Armazenando em log
+        printf("Armazenando em log\n");
+
+        char msg[33] = ""; //mensagem de resposta no display
+        Leds::LED_TYPE ledType = Leds::LT_RED;
+        stringstream wavePath;
+        wavePath << DIR_HOME << DIR_PRISMA << DIR_AUDIO << AUDIO_REGISTRY_NOK;
+
+        if (card.empty()) { //só vai vir zerado se for biometria 1:N
+#ifdef PRISMA_DISPLAY_128X64
+
+#else
+            ((InterfaceDisplay16x2*) display)->clearDsp();
+            ((InterfaceDisplay16x2*) display)->setPosition(0, 0);
+            ((InterfaceDisplay16x2*) display)->print(MSG_REQUEST_FINGER);
+#endif
+            result = identifyBio(biometric, card);
+            bioVerified = true;
+            sprintf(msg, (result == DSP_NOT_FOUND) ? MSG_REGISTRY_NOT_FOUND :
+                    MSG_REGISTRY_READ_ERROR);
+            result = (result == DSP_SUCESS) ? OK : ERROR; //setando resultado final
+        }
+
+        if (result == OK) {
+            printf("Carregando dados do usuário - %s\n", card.c_str());
+            Employee* employee = new Employee();
+            EmployeeReg* employeeReg = new EmployeeReg();
+
+            if (searchEmployeebyRegistration(db, card, employee,
+                    employeeReg) == OK) {
+                struct tm date;
+                int trys;
+
+                //verificando biometria
+                if (configuration->getTpBiometric() != Configuration::BT_NONE) {
+                    if ((!bioVerified) && (employee->getVerifyTemplate() > 0)) {
+                        printf("verificando biometria\n");
+#ifdef PRISMA_DISPLAY_128X64
+
+#else
+                        ((InterfaceDisplay16x2*) display)->clearDsp();
+                        ((InterfaceDisplay16x2*) display)->setPosition(0, 0);
+                        ((InterfaceDisplay16x2*) display)->print(MSG_REQUEST_FINGER);
+#endif
+                        result = verifyBio(biometric, card);
+                        sprintf(msg, (result == DSP_NOT_FOUND) ?
+                                MSG_REGISTRY_NOT_FOUND :
+                                MSG_REGISTRY_READ_ERROR);
+                        result = (result == DSP_SUCESS) ? OK : ERROR; //setando resultado final
+                    }
+                }
+                
+                printf("resultado = %d\n", result);
+                if (result == OK) {
+                    printf("obtendo instância do empregador\n");
+                    Employer* employer = Employer::getInstance(); //carregando empresa
+
+                    printf("printando employee card\n");
+                    printf("%s\n", employee->getPIS().data());
+
+                    //Carrega data hora da instância do RTC
+                    trys = 0;
+                    do {
+                        printf("Carregando data hora do rtc - %d\n", trys);
+                        result = HRtc::getInstance()->getDateTime(&date);
+                        if (result == ERROR)
+                            usleep(10000);
+                    } while ((result != OK) && (++trys < DEF_TRYS));
+
+                    if (result == OK) {
+                        printf("Pegando instância da mrp manager\n");
+                        MrpManager* mrpManager = MrpManager::getInstance(
+                                (char*) DEF_MRP_DEV);
+
+                        int evtQtty = 0; //quantidade de eventos na MRP
+                        trys = 0;
+                        do { //recebendo quantidade para calcular próximo NSR
+                            printf("recebendo qtde de eventos\n");
+                            result = mrpManager->receiveQttyEvents(&evtQtty);
+                            if (result != MRP_ERROR_NONE)
+                                usleep(10000);
+                        } while ((result != MRP_ERROR_NONE) && (++trys < DEF_TRYS));
+
+                        if (result == MRP_ERROR_NONE) {
+
+                            //Registrando evento de ponto na MRP com o NSR obtido
+                            printf("gravando registro na mrp\n");
+                            Event* registry = new RegistryEvent(++evtQtty, &date,
+                                    employee->getPIS());
+                            trys = 0;
+                            do { //Tentando enviar o registro à MRP - 3 tentativas
+                                result = mrpManager->sendEvent(registry);
+                                if (result == MRP_ERROR_INVALID_NSR)
+                                    registry->setNSR(++evtQtty);
+                                if (result != MRP_ERROR_NONE)
+                                    usleep(10000);
+                            } while ((result != MRP_ERROR_NONE) &&
+                                    (++trys < DEF_TRYS));
+
+                            if (result == MRP_ERROR_NONE) {
+                                string temp;
+                                StatusCmd* statusCmd = new StatusCmd(db);
+                                registry->getEventLine(temp);
+                                statusCmd->setParam(temp);
+                                statusCmd->setEventStatus(StatusCmd::ES_EV);
+                                listenerManager->sendEventStatus(statusCmd);
+                                delete(statusCmd);
+                            }
+
+                            delete(registry); //removendo registro da memória
+                        }
+
+                        if (result == MRP_ERROR_NONE) { //caso tenha gravado na MRP
+                            //TODO envio do registro para banco de dados
+                            printf("carregando configurações\n");
+                            Configuration* config = Configuration::getInstance();
+
+                            printf("Criando chars\n");
+                            char repNr[21] = "";
+                            char nsr[10] = "";
+
+                            sprintf(repNr, "%s", config->getNrRep().c_str());
+
+                            printf("Sprintf nsr\n");
+                            sprintf(nsr, "%09d", evtQtty);
+
+                            char documentLine[64] = "";
+                            char repLine[64] = "";
+                            char pisLine[64] = "";
+
+                            printf("%s\n", employer->getDocument().c_str());
+                            printf("%s\n", employer->getCei().c_str());
+                            printf("%s\n", employer->getDocumentType() ==
+                                    Employer::DT_CNPJ ? "CNPJ" : "CPF ");
+
+                            printf("sprintfDocline\n");
+                            sprintf(documentLine, MSG_RECEIPT_DOC,
+                                    (employer->getDocumentType() == Employer::DT_CNPJ)
+                                    ? "CNPJ" : "CPF ", employer->getDocument().c_str(),
+                                    employer->getCei().c_str());
+                            printf("sprintf rep\n");
+                            sprintf(repLine, MSG_RECEIPT_REP_NSR, repNr, nsr);
+                            printf("sprintf pis\n");
+                            sprintf(pisLine, MSG_RECEIPT_PIS_DATE,
+                                    employee->getPIS().c_str(),
+                                    date.tm_mday, (date.tm_mon + 1),
+                                    (date.tm_year + 1900) % 100, date.tm_hour,
+                                    date.tm_min);
+
+                            string line = "";
+                            string temp = "";
+
+                            string employerNameUC = getUpper(employer->getName());
+                            string localUC = getUpper(employer->getLocal());
+                            string employeeNameUC = getUpper(employee->getName());
+
+                            removeWhiteSpace(&temp, employerNameUC, false);
+                            line.append(temp.c_str());
+                            line.append("\n");
+                            line.append(documentLine);
+                            removeWhiteSpace(&temp, localUC, false);
+                            line.append(temp.c_str());
+                            line.append("\n");
+                            line.append(repLine);
+                            removeWhiteSpace(&temp, employeeNameUC, false);
+                            line.append(temp.c_str());
+                            line.append("\n");
+                            line.append(pisLine);
+
+                            Printer::CUTMODE cm = Printer::CUT_FULL;
+                            switch (config->getTpPaperCut()) { //tipo do corte do papel
+                                case Configuration::PT_FULL: cm = Printer::CUT_FULL;
+                                    break;
+                                case Configuration::PT_HALF: cm =
+                                            Printer::CUT_PARTIAL;
+                                    break;
+                                case Configuration::PT_NONE: cm = Printer::CUT_NONE;
+                                    break;
+                            }
+
+                            //Printando dados na impressora
+                            int status;
+                            status = printer->print((char*) line.c_str(),
+                                    Printer::FM_PRINTER, Printer::CUT_NONE);
+                            logger->writeLineData((char*) line.c_str());
+                            if (status == OK) {
+                                printf("Imprimindo mais um pedaço\n");
+                                status = printer->print((char*) MSG_RECEIPT_HEADER,
+                                        Printer::FM_CUSTOM, cm);
+                            }
+                            printf("mostrando no display\n");
+                            //Envio do registro para display
+                            // Realiza a montagem da mensagem de forma diferente para cada display
+#ifdef PRISMA_DISPLAY_128X64
+                            //((InterfaceDisplay128x64*) display)->
+#else
+                            char name[17] = "";
+                            strcpy(name, employee->getName().substr(0, 16).c_str());
+                            sprintf(msg, MSG_REGISTRY_OK, name);
+#endif
+                            ledType = Leds::LT_GREEN;
+                            wavePath.str("");
+                            wavePath << DIR_HOME << DIR_PRISMA << DIR_AUDIO <<
+                                    AUDIO_REGISTRY_OK;
+                        } else {
+                            printf("Erro ao acessar mrp\n");
+                            sprintf(msg, "ERRO MRP, ");
+                        }
+                    } else {
+                        printf("Erro ao acessar rtc\n");
+                        sprintf(msg, "ERRO RTC, ");
+                    }
+                }
+            } else {
+                sprintf(msg, MSG_REGISTRY_NO_USER);
+            }
+            printf("deletando empregado\n");
+            delete(employee);
+            printf("deletando empreg\n");
+            delete(employeeReg);
+        }
+
+        leds->setLed(ledType, ((int) this->arg2) / 1000); //arg2 está em uS
+        wave->play((char*) wavePath.str().c_str());
+        if (this->showMessageEventHandler != NULL)
+            this->showMessageEventHandler(this->object, (void*) msg, this->arg2);
+        printf("Remainig lines = %d\n", printer->remainingLines());
+        if (printer->remainingLines() <= 0) { //limpeza rápida de spool
+            printer->dumpSpool();
+        }
+
+        return OK;
+    } catch (...) {
+
+    }
+    return ERROR;
+}

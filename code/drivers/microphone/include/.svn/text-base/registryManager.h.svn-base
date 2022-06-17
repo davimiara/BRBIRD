@@ -1,0 +1,43 @@
+#ifndef _REGISTRYMANAGER_H
+#define	_REGISTRYMANAGER_H
+
+#include <henry/display/InterfaceDisplay.h>
+#include <henry/printer/printer.h>
+#include <henry/general/leds.h>
+#include <henry/audio/wave.h>
+#include <henry/prisma/socket/listenerManager.h>
+#include <henry/telematica/telematica.h>
+
+
+class RegistryManager {
+public:
+    RegistryManager(void* db, Configuration* configuration, Printer* printer,
+            InterfaceDisplay* display, Leds* leds, Wave* wave, Dsp* biometric,
+            ListenerManager* listenerManager, Telematica* telematica);
+    
+    virtual ~RegistryManager();
+private:
+    void* db;
+    Configuration* configuration;
+    Printer* printer;
+    InterfaceDisplay* display;
+    Leds* leds;
+    Wave* wave;
+    Dsp* biometric;
+    ListenerManager* listenerManager;
+    Telematica* telematica;
+
+    void* object;
+    void* arg2;
+    void (*showMessageEventHandler) (void* object, void* message, void* arg2);
+
+public:
+    int setShowMessageEventHandler(void* obj, void* arg, 
+            void (*function) (void* object, void* message, void* arg2));
+
+    int validate(string card);
+
+};
+
+#endif	/* _REGISTRYMANAGER_H */
+

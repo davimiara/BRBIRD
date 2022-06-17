@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="80">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df name="rtc" root=".">
+      <df name="docs">
+        <df name="i2c">
+          <in>ds3231.c</in>
+          <in>ds3231.h</in>
+          <in>main.c</in>
+        </df>
+        <df name="rtcImpl">
+          <df name="bin">
+          </df>
+          <df name="doc">
+          </df>
+          <df name="src">
+            <in>main.cpp</in>
+          </df>
+        </df>
+      </df>
+      <df name="include">
+        <in>ds3231.h</in>
+        <in>rtc.h</in>
+      </df>
+      <df name="lib">
+      </df>
+      <df name="src">
+        <in>ds3231.cpp</in>
+        <in>rtc.cpp</in>
+      </df>
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="Arquivos importantes"
+                   projectFiles="false"
+                   root=".">
+      <itemPath>Makefile</itemPath>
+      <itemPath>Makefile-rtc.mk</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile-rtc.mk</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <remote-sources-mode>LOCAL_SOURCES</remote-sources-mode>
+        <compilerSet>GNU|GNU</compilerSet>
+      </toolsSet>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile clean</cleanCommand>
+          <executablePath>./lib/libhrtc</executablePath>
+          <ccTool>
+            <incDir>
+              <pElem>.</pElem>
+            </incDir>
+          </ccTool>
+        </makeTool>
+      </makefileType>
+      <item path="docs/i2c/ds3231.c" ex="true" tool="0" flavor="0">
+      </item>
+      <item path="docs/i2c/ds3231.h" ex="true" tool="3" flavor="0">
+      </item>
+      <item path="docs/i2c/main.c" ex="true" tool="0" flavor="0">
+      </item>
+      <folder path="rtc/docs">
+        <ccTool>
+          <incDir>
+            <pElem>src</pElem>
+          </incDir>
+        </ccTool>
+      </folder>
+    </conf>
+  </confs>
+</configurationDescriptor>

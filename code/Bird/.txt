@@ -1,0 +1,23 @@
+***********************************************
+*                                             *
+	.txt
+*                                             *
+***********************************************
+
+
+Nome do arquivo: /home/davi/Mestrado/cpp/Bird/Util/waves/Crypturellus_stringulosus1.wav
+Tamanho total arq. WAV: 338920
+Tamanho total dados: 338876
+Taxa de amostragem: 22050
+Num. de canais: 2
+Código de compressão: 1
+Qtde de bits por amostra: 16
+Block align: 4
+***********************************************
+*                                             *
+Dados referentes ao sinal no domínio do tempo
+*                                             *
+***********************************************
+Média dos dados: -1.1744e-05
+Variancia dos dados: 2.5958e-06
+Desvio padrão dos dados: 0.00161115

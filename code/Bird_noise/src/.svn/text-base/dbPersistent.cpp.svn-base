@@ -1,0 +1,208 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe responsável pelo pela persistencia dos dados do banco de dados
+ * na aplicação, o método é executado em thread e verifica sempre na tabela
+ * systemLog do banco se houve alguma atualização recente, caso exista então
+ * as instâncias dos objetos são atualizadas na aplicação. Ao encontrar
+ * ocorrências os dados da tabela são imediatamente apagados da tabela.
+ *
+ * Autor: Davi Miara Kiapuchinski
+ * Data: 02/08/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+
+#include <stdio.h>
+#include <iostream>
+#include <stdlib.h>
+#include <time.h>
+#include <string.h>
+
+#include "../include/dbPersistent.h"
+
+#include <henry/general/henryutil.h>
+#include <henry/prisma/prismaUtil.h>
+#include <henry/rtc/rtc.h>
+
+#include <henry/prisma/dbPrisma/dao/systemlogDao.h>
+#include <henry/prisma/dbPrisma/control/systemLog.h>
+
+#include <henry/prisma/dbPrisma/control/configuration.h>
+#include <henry/prisma/dbPrisma/control/summerTime.h>
+#include <henry/prisma/dbPrisma/control/employer.h>
+#include <henry/prisma/dbPrisma/control/dateTime.h>
+
+#include <henry/prisma/dbPrisma/dao/configurationDao.h>
+#include <henry/prisma/dbPrisma/dao/summerTimeDao.h>
+#include <henry/prisma/dbPrisma/dao/employerDao.h>
+#include <henry/prisma/dbPrisma/dao/dateTimeDao.h>
+
+#define OK 0
+#define ERROR -1
+
+DbPersistent::DbPersistent() {
+}
+
+DbPersistent::~DbPersistent() {
+}
+
+int DbPersistent::checkDbLog(void* conn) {
+    int returnf = ERROR;
+
+    vector<void*> sysLogList;
+    SystemLog* sysLog;
+
+    returnf = SysLogDao::list((void*) conn, NULL, sysLogList);
+
+    if ((sysLogList.size() > 0) && (&sysLogList.at(0) != NULL) && returnf == OK) {
+        for (unsigned int i = 0; i < sysLogList.size(); i++) { //walk on all lines
+            sysLog = (SystemLog*) sysLogList.at(i);
+            switch (sysLog->getCode()) {
+                case SystemLog::TN_BIOMETRICDATA:
+                {
+                }
+                    break;
+                case SystemLog::TN_CONFIGURATION:
+                {
+                    //Configuration* configuration = loadConfiguration((void*) conn);
+                    Configuration* configuration = Configuration::getInstance();
+                    returnf = ConfigurationDao::select((void*) conn, NULL, configuration);
+                }
+                    break;
+                case SystemLog::TN_DATETIME:
+                {
+                    HRtc* rtc = HRtc::getInstance(); //instância do rtc
+
+                    //take dateTime from Db
+                    vector<void*> dtList;
+                    DateTime* dtAux;
+
+                    struct tm dt;
+
+                    returnf = DateTimeDao::list((void*) conn, NULL, dtList);
+                    if ((dtList.size() > 0) && (dtList.at(0) != NULL)) {
+                        dtAux = (DateTime*) dtList.at(0);
+                        dtAux->getDateTime(&dt);
+
+                        //valid dateTime
+                        char dateBuf[17] = "";
+                        char hourBuf[17] = "";
+
+                        sprintf(dateBuf, "%02d/%02d/%04d", dt.tm_mday, (dt.tm_mon + 1),
+                                dt.tm_year + 1900);
+                        sprintf(hourBuf, "%02d:%02d:%02d", dt.tm_hour, dt.tm_min,
+                                dt.tm_sec);
+
+                        if (validDate(dateBuf) == OK) {
+                            if (validTime(hourBuf) == OK) {
+                                if (rtc->setDateTime(&dt) != OK) {
+                                    returnf = ERROR;
+                                }
+                            }
+                        }
+
+                    } else returnf = ERROR;
+
+                    for (unsigned int j = 0; i < dtList.size(); i++) {
+                        delete (dtList.at(j));
+                    }
+                }
+                    break;
+                case SystemLog::TN_EMPLOYEE:
+                {
+                }
+                    break;
+                case SystemLog::TN_EMPLOYER:
+                {
+                    Employer* employer = Employer::getInstance();
+                    EmployerDao::select((void*) conn, NULL, employer);
+                }
+                    break;
+                case SystemLog::TN_SYSTEMLOG:
+                {
+                }
+                    break;
+                case SystemLog::TN_MRP:
+                {
+                }
+                    break;
+                case SystemLog::TN_ROOTLOG:
+                {
+                }
+                    break;
+                case SystemLog::TN_MOD:
+                {
+                }
+                    break;
+                case SystemLog::TN_SYSUSER:
+                {
+                }
+                    break;
+                case SystemLog::TN_SUMMERTIME:
+                {
+                    HRtc* rtc = HRtc::getInstance(); //instância do rtc
+
+                    //take dateTime from Db
+                    vector<void*> stList;
+                    SummerTime* stAux;
+
+                    struct tm initiation;
+                    struct tm conclusion;
+
+                    returnf = SummerTimeDao::list((void*) conn, NULL, stList);
+                    if ((stList.size() > 0) && (stList.at(0) != NULL)) {
+                        stAux = (SummerTime*) stList.at(0);
+                        stAux->getInitiation(&initiation);
+                        stAux->getConclusion(&conclusion);
+
+                        //valid dateTime
+                        char dateInitiation[17] = "";
+                        char dateConclusion[17] = "";
+
+                        sprintf(dateInitiation, "%02d/%02d/%04d", initiation.tm_mday,
+                                (initiation.tm_mon + 1), initiation.tm_year + 1900);
+                        sprintf(dateConclusion, "%02d/%02d/%04d", conclusion.tm_mday,
+                                (conclusion.tm_mon + 1), conclusion.tm_year + 1900);
+
+                        if (validDate(dateInitiation) == OK) {
+                            if (validDate(dateConclusion) == OK) {
+                                if (rtc->adjustSummerTime(initiation, conclusion) != OK) {
+                                    returnf = ERROR;
+                                }
+                            }
+                        }
+
+                    } else returnf = ERROR;
+
+                    for (unsigned int j = 0; j < stList.size(); j++) {
+                        delete(stList.at(j));
+                    }
+                }
+                    break;
+            }
+            if (returnf == OK)
+                returnf = SysLogDao::deletef((void*) conn, sysLog); //delete line
+
+            delete(sysLogList.at(i));
+        }
+
+    } else {
+        returnf = OK;
+    }
+
+    return returnf;
+}

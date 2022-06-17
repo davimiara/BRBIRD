@@ -1,0 +1,70 @@
+#ifndef _CONSTANTS_H
+#define	_CONSTANTS_H
+
+#include <henry/prisma/prismaUtil.h>
+
+#define FW_NAME "     PRISMA     "
+#define FW_VERSION "8.0.0.0.10sb"
+
+
+#define DEF_MENU_FACT_KEY "/home/henry/prisma/prisma.cfg"
+
+#define DEF_TRYS 3
+
+#define C_1_SECOND 1000000
+#define S_TO_US(sec) (sec * C_1_SECOND) //Segundos para uSegundos
+
+
+#define INPUT_INFO_TIMEOUT 10
+#define INSTANT_EMISSION_TIMEOUT 5
+#define MENU_CONFIG_TIMEOUT 5
+#define SENSOR_BATTERY_TIMEOUT 60
+#define SENSOR_NO_PAPER_TIMEOUT 30
+#define SENSOR_FEW_PAPER_TIMEOUT 60
+#define SENSOR_PRINTER_COMMUNICATION_TIMEOUT 60
+#define SENSOR_NO_PRINTER_TIMEOUT 10
+#define SENSOR_TAMPER_TIMEOUT 10
+
+
+#define CARD_MAX_DIGITS 20
+
+
+/* Layout do comprovante */
+/* 
+ * Largura: 38 caracteres
+ *  
+ * Exemplo:
+
+HENRY EQUIPAMENTOS
+CNPJ 01245055000124  CEI 000000000000
+RUA RIO PIQUIRI,400 PINHAIS
+REP 00000000000000012   NSR 000000123
+JOAO DA SILVA
+PIS 123456789012       11/11/10 10:10
+
+ *   COMPROVANTE DE REGISTRO DE   *
+ *      PONTO DO TRABALHADOR      *
+//corte do papel
+ 
+ */
+
+#define MSG_RECEIPT_EMPLOYER "%s\n"
+#define MSG_RECEIPT_DOC "%s %s  CEI %s\n"
+#define MSG_RECEIPT_LOCAL "%s\n"
+#define MSG_RECEIPT_REP_NSR "REP %s  NSR %s\n"
+#define MSG_RECEIPT_USER "%s\n"
+#define MSG_RECEIPT_PIS_DATE "PIS %s       %02d/%02d/%02d %02d:%02d\n"
+#define MSG_RECEIPT_HEADER "  *   COMPROVANTE DE REGISTRO DE   *  \n" \
+                           "  *      PONTO DO TRABALHADOR      *  \n"
+
+#define MSG_EMISSION_EMPLOYER "%s\n"
+#define MSG_EMISSION_DOC "%s %s  CEI %s\n"
+#define MSG_EMISSION_LOCAL "%s\n"
+#define MSG_EMISSION_REP "REP %s\n"
+#define MSG_EMISSION_EMPLOYEE_NAME "%s\n"
+#define MSG_EMISSION_EMPLOYEE_DATA "PIS %s  NSR %s  %s\n"
+#define MSG_EMISSION_HEADER " * RELACAO INSTANTANEA DE MARCACOES * \n"
+
+#define MSG_EMISSION_EMPLOYEE_NOT_FOUND "Funcionário não encontrado"
+
+#endif	/* _CONSTANTS_H */

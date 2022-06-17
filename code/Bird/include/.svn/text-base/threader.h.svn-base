@@ -1,0 +1,37 @@
+#ifndef _THREADER_H
+#define	_THREADER_H
+
+#include <henry/general/hthread.h>
+
+class Threader : private Hthread {
+public:
+    Threader();
+    Threader(int interval);
+    virtual ~Threader();
+private:
+    int interval;
+    bool once;
+    bool enabled;
+    bool terminated;
+    bool running;
+    void* object;
+    void* args;
+    void (*eventHandler) (void* object, void* args);
+
+    void init();
+    virtual int exec();
+
+public:
+    void setEventHandler(void* object, void* args,
+            void (*function) (void* object, void* args));
+    void setEnable(bool enabled);
+    bool isEnable();
+    void startThread();
+    void terminate();
+    bool isRunnig();
+    void* getArgs();
+    void setArgs(void* args);
+
+};
+
+#endif	/* _THREADER_H */

@@ -1,0 +1,68 @@
+10
+
+dir
+13
+file://192.168.0.1/Projetos/repositorio/cpp/rtc/trunk/docs
+file://192.168.0.1/Projetos/repositorio/cpp/rtc
+
+
+
+2010-07-19T18:24:02.781250Z
+5
+Eduardo Andrade
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+f44e55d2-ffd4-cb43-a116-d7c8f1949e57
+
+DS3231.pdf
+file
+
+
+
+
+2010-07-01T22:59:12.046875Z
+2c1adbd0ae54ba14f01859f3cfef6c0b
+2010-07-01T22:58:43.515625Z
+1
+Eduardo Andrade
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+375296
+
+rtcImpl
+dir
+
+i2c
+dir
+

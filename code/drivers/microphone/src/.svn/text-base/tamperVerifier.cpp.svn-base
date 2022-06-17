@@ -1,0 +1,155 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 02/08/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include "../include/tamperVerifier.h"
+
+#define OK 0
+#define ERROR -1
+
+TamperVerifier* tamperVerifier;
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                             CONSTRUTOR
+ *
+ *----------------------------------===---------------------------------------*/
+
+TamperVerifier::TamperVerifier(const string filePath) {
+    init(filePath);
+}
+
+TamperVerifier::~TamperVerifier() {
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                           Métodos privados
+ *
+ *----------------------------------===---------------------------------------*/
+
+int TamperVerifier::init(const string filePath) {
+    int result = ERROR;
+    try {
+        this->filePath = filePath;
+        //verificando se equipamento está ou não bloqueado
+        if (access(filePath.c_str(), F_OK) == OK) {
+            FILE* file = fopen(this->filePath.c_str(), "r");
+            if (file != NULL) {
+                int infoSize = sizeof (int) + sizeof (tm);
+                unsigned char info[infoSize];
+
+                fread(info, 1, infoSize, file);
+                fclose(file);
+
+                //salvando dados na classe
+                memcpy(&word, info, sizeof (int));
+                memcpy(&dateTime, &info[sizeof (int) ], sizeof (tm));
+
+                blocked = true;                 
+                result = OK;
+            }
+        } else {
+            blocked = false;
+        }
+    } catch (...) {
+
+    }
+    //carregando dados na classe
+    return result;
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                           Métodos públicos
+ *
+ *----------------------------------===---------------------------------------*/
+
+bool TamperVerifier::isBlocked() {
+    return blocked;
+}
+
+int TamperVerifier::setBlocked(int word, const tm dateTime) {
+    try {
+        int result = ERROR;
+        if (!this->blocked) {
+            FILE* file = fopen(this->filePath.c_str(), "w+");
+            if (file != NULL) {
+                int infoSize = sizeof (int) + sizeof (tm);
+                unsigned char info[infoSize];
+                memcpy(info, &word, sizeof (int));
+                memcpy(&info[sizeof (int) ], &dateTime, sizeof (tm));
+
+                fwrite(info, 1, infoSize, file);
+                fclose(file);
+
+                //salvando dados na classe
+                this->word = word;
+                memcpy(&this->dateTime, &dateTime, sizeof (tm));
+                this->blocked = true;
+                result = OK;
+            } else {
+                result = ERROR;
+            }
+        }
+        return result;
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int TamperVerifier::unBlock() {
+    try {
+        unlink(filePath.c_str());
+        init(filePath);
+        return OK;
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int TamperVerifier::getDateTime(tm* dateTime) {
+    try {
+        if (blocked) {
+            memcpy(dateTime, &this->dateTime, sizeof (tm));
+            return OK;
+        }
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int TamperVerifier::getWord() {
+    try {
+        if (blocked) {
+            return word;
+        }
+    } catch (...) {
+
+    }
+    return ERROR;
+}

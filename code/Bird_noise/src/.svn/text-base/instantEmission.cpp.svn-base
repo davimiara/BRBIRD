@@ -1,0 +1,458 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe responsável pela geração do AFD no pen drive conectado.
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 16/07/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+#include <time.h>
+#include <string.h>
+#include <sstream>
+#include <fcntl.h>
+#include <henry/logger/logger.h>
+#include <henry/display/interfaceDisplay16x2.h>
+#include <henry/prisma/prismaUtil.h>
+#include <henry/prisma/dbPrisma/control/employer.h>
+#include <string>
+#include <henry/prisma/dbPrisma/control/employee.h>
+#include <henry/prisma/dbPrisma/dao/employeeDao.h>
+#include <henry/printer/printer.h>
+#include <henry/prisma/mrp/command/mrpHeader.h>
+#include <unistd.h>
+#include <henry/general/hthread.h>
+#include "../include/instantEmission.h"
+#include "../include/constants.h"
+#include "../include/menu/menuMessages.h"
+
+using namespace std;
+
+#define PACKAGE_SIZE 200
+
+#define OK 0
+#define ERROR -1
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                              CONSTRUTORES
+ *
+ *----------------------------------===---------------------------------------*/
+
+InstantEmissionManager::InstantEmissionManager(void* db,
+        InterfaceDisplay* display, Configuration* configuration,
+        MrpManager* mrpManager, Logger* logger, HRtc* hrtc, Printer* printer,
+        Wave* wave) {
+    //inicializando variáveis
+    this->db = db;
+    this->display = display;
+    this->configuration = configuration;
+    this->mrpManager = mrpManager;
+    this->logger = logger;
+    this->hrtc = hrtc;
+    this->printer = printer;
+    this->wave = wave;
+    this->terminated = false;
+    this->running = false;
+    this->status = ERROR;
+    this->printerLine = 0;
+}
+
+InstantEmissionManager::~InstantEmissionManager() {
+    this->terminate();
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                             MÉTODOS PRIVADOS
+ *
+ *----------------------------------===---------------------------------------*/
+
+void InstantEmissionManager::printerEventWrapper(void* object, int code, int arg) {
+    ((InstantEmissionManager*) object)->printerEvent(code, arg);
+}
+
+void InstantEmissionManager::printerEvent(int code, int arg) {
+    switch (code) {
+        case PRINTER_FLAG_END_PAPER:;
+            break;
+        case PRINTER_FLAG_PAPER_OK:;
+            break;
+        case PRINTER_FLAG_LINE: printerLine = arg;
+            break;
+    }
+}
+
+void InstantEmissionManager::doStatus(int qtty, int total) {
+    try {
+        char msg[33] = "";
+        if (qtty > total)
+            qtty = total;
+        sprintf(msg, MSG_OPERATION_PROGRESS, (qtty * 100) / total);
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+#else
+        display->clearDsp();
+        ((InterfaceDisplay16x2*) display)->print(MSG_EMISSION, 0, 0);
+        ((InterfaceDisplay16x2*) display)->print(msg, 1, 0);
+#endif
+    } catch (...) {
+
+    }
+}
+
+int InstantEmissionManager::exec() {
+    int result = ERROR;
+    this->status = result;
+    int evtQtty = 0; //quantidade de eventos na MRP
+    try {
+        //setando evento de impressora
+        printer->setEventHandler(this,
+                &InstantEmissionManager::printerEventWrapper);
+
+        this->setPriority(SCHED_RR, THREAD_HIGH_PRIORITY);
+        //Armazenando em log
+        printf("Gerando emissão\n");
+        logger->writeLineData("Gerando emissão instantânea");
+
+        char msg[33] = MSG_EMISSION; //mensagem de gravação
+
+        printf("limpando display\n");
+        display->clearDsp();
+#ifdef PRISMA_DISPLAY_128X64
+        //((InterfaceDisplay128x64*) display)->
+#else
+        ((InterfaceDisplay16x2*) display)->print(msg, 0, 0);
+#endif
+
+        int trys = 0; //contador de tentativas
+        do {
+            result = mrpManager->receiveQttyEvents(&evtQtty);
+        } while ((result != MRP_ERROR_NONE) && (++trys < DEF_TRYS));
+
+        tm dtTm;
+        memset(&dtTm, 0, sizeof (tm));
+        while (hrtc->getDateTime(&dtTm) == ERROR) {
+            logger->writeLineData("Erro ao pegar data hora");
+            usleep(500000); //aguarda 500 ms
+        }
+
+        //Calculando data hora de busca - 24 horas atrás...
+        time_t timeSearch = mktime(&dtTm);
+        timeSearch -= (60 * 60 * 24); //descontando 1 dia = 60s * 60m * 24hrs
+        localtime_r(&timeSearch, &dtTm);
+
+        int position;
+        int initPosition;
+
+        logger->writeLineData("Localizando evento na memória");
+        result = locateEventMRP(&dtTm, &position);
+
+        printf("Posição encontrada: %d\n", position);
+
+        if (result == OK) {
+            int readedEvents = 0; //eventos lidos
+            int readedBytes = 0; //bytes lidos
+            string events = ""; //armazena os eventos lidos
+
+            int totalReaded = 0;
+            int error = 0;
+
+            //cortando último cabeçalho de bilhete
+            printer->print("\n", Printer::FM_CUSTOM, Printer::CUT_NONE);
+            printer->print(MSG_EMISSION_HEADER, Printer::FM_CUSTOM,
+                    Printer::CUT_PARTIAL);
+
+            //imprimindo cabeçalho da emissão instantânea
+            char documentLine[64] = "";
+            char repLine[64] = "";
+
+            Employer* employer = Employer::getInstance();
+            //emissão instantânea
+            sprintf(documentLine, MSG_EMISSION_DOC, (
+                    employer->getDocumentType() == Employer::DT_CNPJ) ?
+                    "CNPJ" : "CPF ", employer->getDocument().c_str(),
+                    employer->getCei().c_str());
+            sprintf(repLine, MSG_EMISSION_REP,
+                    configuration->getNrRep().c_str());
+
+            string line = "";
+            string temp = "";
+
+            string employerNameUC = getUpper(employer->getName());
+            string localUC = getUpper(employer->getLocal());
+
+            removeWhiteSpace(&temp, employerNameUC, false);
+            line.append(temp.c_str());
+            line.append("\n");
+            line.append(documentLine);
+            removeWhiteSpace(&temp, localUC, false);
+            line.append(temp.c_str());
+            line.append("\n");
+            line.append(repLine);
+            line.append("\n");
+
+            printer->print((char*) line.c_str(), Printer::FM_PRINTER,
+                    Printer::CUT_NONE);
+            //Fim do cabeçalho da emissão instantânea
+
+            if (position >= 0) { //posição 0 = nsr 1
+                result = mrpManager->readEvent(position, 1, &initPosition,
+                        &readedEvents, &readedBytes, events);
+
+                //Carregando nsr;
+                printf("Quantidade de eventos: %d\n", evtQtty);
+                //calculando quantos registros serão coletados
+                evtQtty -= (atoi(events.substr(0, 9).c_str()) - 1);
+                printf("Eventos serão coletados: %d\n", evtQtty);
+
+                if (evtQtty > 0) {
+                    sprintf(msg, MSG_OPERATION_PROGRESS,
+                            (readedEvents * 100) / evtQtty);
+#ifdef PRISMA_DISPLAY_128X64
+                    //((InterfaceDisplay128x64*) display)->
+#else
+                    display->clearDsp();
+                    ((InterfaceDisplay16x2*) display)->print(MSG_EMISSION, 0, 0);
+                    ((InterfaceDisplay16x2*) display)->print(msg, 1, 0);
+#endif
+
+                    logger->writeLineData("Iniciando geração da emissão");
+                    do {
+                        result = mrpManager->readEvent(position,
+                                PACKAGE_SIZE, &initPosition, &readedEvents,
+                                &readedBytes, events);
+                        if (result == OK) {
+                            error = 0;
+                            if (readedEvents == 0) break; //terminou leitura
+
+                            position += readedBytes; //incrementando posição
+                            totalReaded += readedEvents; //atualizando lidos
+
+                            int idx = 0;
+
+                            //carregando informações do registro
+                            for (int i = 0; i < readedEvents; i++) {
+                                string nsr = events.substr(idx, 9).c_str();
+                                idx += 9;
+                                int idReg = charToInt(events.at(idx++));
+
+                                switch (idReg) {
+                                    case MRP_ID_EMPLOYER:
+                                    {
+                                        idx += MRP_AFD_LENGTH_EMPLOYER - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_EMPLOYEE:
+                                    {
+                                        idx += MRP_AFD_LENGTH_EMPLOYEE - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_DATETIME:
+                                    {
+                                        idx += MRP_AFD_LENGTH_DATETIME - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_REGISTRY:
+                                    {
+                                        string hour = "";
+                                        string pis = "";
+                                        string name = "";
+
+                                        char employeeData[64] = "";
+                                        //    9     1    8       4     12
+                                        //000000005 3 26072010 1200 000000000005
+                                        idx += 8; //pulando data
+
+                                        //carregando data e pis
+                                        hour.append(events.substr(idx, 2)); //hora
+                                        idx += 2;
+                                        hour.append(":");
+                                        hour.append(events.substr(idx, 2)); //minuto
+                                        idx += 2;
+                                        pis = events.substr(idx, 12); //pis
+                                        idx += 12;
+
+                                        //carregando nome do funcionário
+                                        Employee* employee = new Employee();
+                                        employee->setPIS(pis);
+
+                                        result = searchEmployeebyPis(db, employee);
+                                        if (result == OK) {
+                                            name = employee->getName();
+                                        } else {
+                                            //search on table EmployeeLog
+                                            char buffer[128];
+                                            vector<void*> empList;
+                                            Employee* empAux;
+                                            sprintf(buffer, "WHERE PIS = '%s'",
+                                                    employee->getPIS().c_str());
+                                            result = EmployeeDao::listLog(db,
+                                                    buffer, empList);
+                                            if (result == OK) {
+                                                if ((empList.size() == 1) &&
+                                                        (empList.at(0) != NULL)) {
+                                                    empAux = (Employee*)
+                                                            empList.at(0);
+                                                    name = empAux->getName();
+                                                } else {
+                                                    name = MSG_EMISSION_EMPLOYEE_NOT_FOUND;
+                                                }
+                                                for (unsigned int j = 0;
+                                                        j < empList.size(); j++) {
+                                                    delete(empList.at(j));
+                                                }
+                                                empList.clear();
+                                            } else {
+                                                name = MSG_EMISSION_EMPLOYEE_NOT_FOUND;
+                                            }
+                                        }
+
+                                        string line = "";
+                                        string temp = "";
+                                        string employeeNameUC = getUpper(name);
+                                        sprintf(employeeData,
+                                                MSG_EMISSION_EMPLOYEE_DATA, pis.c_str(),
+                                                nsr.c_str(), hour.c_str());
+                                        delete(employee);
+                                        employee = NULL;
+
+                                        line.append(employeeData);
+                                        removeWhiteSpace(&temp, employeeNameUC,
+                                                false);
+                                        line.append(temp.c_str());
+
+                                        printer->print(line.c_str(),
+                                                Printer::FM_PRINTER, Printer::CUT_NONE);
+
+                                    }
+                                        break;
+                                }
+                                idx += 2;
+
+                                if (i % 10 == 0) {
+                                    doStatus(printerLine, evtQtty);
+                                }
+                            }
+
+                        } else {
+                            error++; //incrementa erro (3 consecutivos = break)
+                        }
+                        //Enquanto não teve 3 erros consecutivos e não coletou tudo.
+                    } while ((error < DEF_TRYS) && (totalReaded < evtQtty)
+                            && (!this->terminated));
+                }
+            }
+
+            Printer::CUTMODE cm = Printer::CUT_FULL;
+            switch (configuration->getTpPaperCut()) { //tipo do corte do papel
+                case Configuration::PT_FULL: cm = Printer::CUT_FULL;
+                    break;
+                case Configuration::PT_HALF: cm = Printer::CUT_PARTIAL;
+                    break;
+                case Configuration::PT_NONE: cm = Printer::CUT_NONE;
+                    break;
+            }
+
+            //cortando emissão
+            printer->print("\n", Printer::FM_CUSTOM, Printer::CUT_NONE);
+            printer->print(MSG_RECEIPT_HEADER, Printer::FM_CUSTOM, cm);
+
+        } else {
+            logger->writeLineData("Erro ao comunicar com MRP");
+        }
+        if (result != MRP_ERROR_NONE) {
+            logger->writeLineData("Erro ao gerar emissão instantânea");
+        }
+
+        if (this->terminated) {
+            result = ERROR;
+        }
+
+        //Alterando estado da thread novamente para normal
+        this->setPriority(SCHED_OTHER, THREAD_NORMAL_PRIORITY);
+
+        if (result == OK) {
+            while ((this->running) && (!this->terminated) &&
+                    (printer->remainingLines() > 0)) {
+                //aguardando impressora terminar de imprimir a emissão
+                if (printerLine % 10 == 0) {
+                    doStatus(printerLine, evtQtty);
+                }
+                usleep(10000);
+            }
+
+            stringstream wavePath;
+            wavePath << DIR_HOME << DIR_PRISMA << DIR_AUDIO <<
+                    AUDIO_INSTANT_EMISSION;
+            wave->play((char*) wavePath.str().c_str());
+#ifdef PRISMA_DISPLAY_128X64
+            //((InterfaceDisplay128x64*) display)->
+#else
+            display->clearDsp();
+            ((InterfaceDisplay16x2*) display)->print(MSG_EMISSION_OK, 0, 0);
+            sleep(2);
+#endif
+
+        } else {
+#ifdef PRISMA_DISPLAY_128X64
+            //((InterfaceDisplay128x64*) display)->
+#else
+            display->clearDsp();
+            ((InterfaceDisplay16x2*) display)->print(MSG_EMISSION_ERROR, 0, 0);
+            sleep(2);
+#endif
+        }
+    } catch (...) {
+
+    }
+    //Alterando estado da thread novamente para normal
+    this->setPriority(SCHED_OTHER, THREAD_NORMAL_PRIORITY);
+    printer->dumpSpool(); //apagando spool da impressora
+    this->status = result;
+    this->running = false;
+    this->detach(); //finalizando thread
+    return result;
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                             MÉTODOS PÚBLICOS
+ *
+ *----------------------------------===---------------------------------------*/
+
+int InstantEmissionManager::generate() {
+    if (!this->isRunning()) {
+        terminated = false;
+        running = true;
+        this->start();
+    }
+    return OK;
+}
+
+void InstantEmissionManager::terminate() {
+    this->terminated = true;
+}
+
+bool InstantEmissionManager::isRunning() {
+    return this->running;
+}
+
+int InstantEmissionManager::getStatus() {
+    return this->status;
+}

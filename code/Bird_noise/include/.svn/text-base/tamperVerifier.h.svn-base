@@ -1,0 +1,32 @@
+#ifndef _TAMPERVERIFIER_H
+#define	_TAMPERVERIFIER_H
+
+#include <string>
+
+using namespace std;
+
+class TamperVerifier {
+public:
+    TamperVerifier(const string filePath);
+    virtual ~TamperVerifier();
+    
+private:
+    string filePath;
+    bool blocked;
+    int word;
+    tm dateTime;
+
+    int init(const string filePath);
+
+public:
+    bool isBlocked();
+
+    int setBlocked(int word, const tm dateTime);
+    int unBlock();
+
+    int getDateTime(tm* dateTime);
+    int getWord();
+
+};
+
+#endif	/* _TAMPERVERIFIER_H */

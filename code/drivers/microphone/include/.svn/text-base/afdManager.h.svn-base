@@ -1,0 +1,43 @@
+#ifndef _AFDMANAGER_H
+#define	_AFDMANAGER_H
+
+#include <henry/general/hthread.h>
+#include <henry/display/InterfaceDisplay.h>
+#include <henry/prisma/mrp/mrpManager.h>
+#include <henry/prisma/dbPrisma/control/configuration.h>
+#include <henry/logger/logger.h>
+#include <henry/audio/wave.h>
+
+class AfdManager : private Hthread {
+public:
+    AfdManager(void* db, InterfaceDisplay* display, MrpManager* mrpManager,
+            Logger* logger, Configuration* configuration, Wave* wave);
+    
+    virtual ~AfdManager();
+    
+private:
+    std::string dir;
+    void* db;
+    InterfaceDisplay* display;
+    MrpManager* mrpManager;
+    Logger* logger;
+    Configuration* configuration;
+    Wave* wave;
+    bool terminated;
+    bool running;
+    int status;
+
+    int updateHeader(FILE* file, string initialDate, string finalDate);
+    int writeTrailer(FILE* file, int counters[]);
+
+    int exec();
+
+public:
+    int generate(std::string card);
+    void terminate();
+    bool isRunning();
+    int getStatus();
+
+};
+
+#endif	/* _AFDMANAGER_H */

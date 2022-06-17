@@ -1,0 +1,400 @@
+/*
+ * 		HENRY EQUIPAMENTOS ELETRÔNICOS E SISTEMAS LTDA
+ *
+ *   Classe responsável pela geração do AFD no pen drive conectado.
+ *
+ *
+ * Autor: Eduardo de Andrade
+ * Data: 16/07/2010
+ *
+ * Modificações:
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ *
+ * ------------------------------------===--------------------------------------
+ * Autor:
+ * Data :
+ * Alteração :
+ * ------------------------------------===--------------------------------------
+ *
+ *
+ */
+#include <time.h>
+#include <string.h>
+#include <sstream>
+#include <fcntl.h>
+#include <henry/logger/logger.h>
+#include <henry/display/interfaceDisplay16x2.h>
+#include <henry/general/hthread.h>
+#include <henry/prisma/mrp/command/mrpHeader.h>
+#include <henry/rtc/rtc.h>
+#include "../include/afdManager.h"
+#include "../include/constants.h"
+#include "../include/menu/menuMessages.h"
+
+using namespace std;
+
+#define PACKAGE_SIZE 50
+
+#define OK 0
+#define ERROR -1
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                              CONSTRUTORES
+ *
+ *----------------------------------===---------------------------------------*/
+
+AfdManager::AfdManager(void* db, InterfaceDisplay* display,
+        MrpManager* mrpManager, Logger* logger, Configuration* configuration,
+        Wave* wave) {
+    //inicializando variáveis
+    this->dir = "";
+    this->db = db;
+    this->display = display;
+    this->mrpManager = mrpManager;
+    this->logger = logger;
+    this->configuration = configuration;
+    this->wave = wave;
+    this->terminated = false;
+    this->running = false;
+    this->status = ERROR;
+}
+
+AfdManager::~AfdManager() {
+    this->terminate();
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                             MÉTODOS PRIVADOS
+ *
+ *----------------------------------===---------------------------------------*/
+
+int AfdManager::updateHeader(FILE* file, string initialDate, string finalDate) {
+    try {
+        if (file != NULL) {
+            char header[512] = "";
+
+            //Carregando informações do cabeçalho
+            int nsr = 0;
+            char docType = Employer::getInstance()->getDocumentType();
+            string doc = Employer::getInstance()->getDocument();
+            string cei = Employer::getInstance()->getCei();
+            string tmp = Employer::getInstance()->getName();
+            string name = "";
+            //proteção contra acentos no nome
+            fillWithStr(tmp, &name, EMPLOYEE_DEF_LENGTH_NAME, " ", false);
+            string rep = configuration->getNrRep();
+
+            tm dateTime;
+            memset(&dateTime, 0, sizeof (tm));
+
+            HRtc::getInstance()->getDateTime(&dateTime);
+
+            char dateStr[64] = "";
+            sprintf(dateStr, "%02d%02d%04d%02d%02d\r\n", dateTime.tm_mday,
+                    (dateTime.tm_mon + 1), dateTime.tm_year + 1900,
+                    dateTime.tm_hour, dateTime.tm_min);
+
+            sprintf(header, "%09d%d%c%s%s%s%s%s%s%s",
+                    nsr,
+                    1,
+                    docType,
+                    doc.c_str(),
+                    cei.c_str(),
+                    name.c_str(),
+                    rep.c_str(),
+                    initialDate.c_str(),
+                    finalDate.c_str(),
+                    dateStr);
+
+            if (strlen(header) != 234) //232 + \r\n
+                return ERROR;
+
+            fseek(file, 0, SEEK_SET); //posicionando no início do arquivo
+            fwrite(header, 1, strlen(header), file);
+            fflush(file);
+            return OK;
+        }
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int AfdManager::writeTrailer(FILE* file, int counters[]) {
+    try {
+        if (file != NULL) {
+            char trailer[512] = "";
+
+            //Carregando informações do cabeçalho
+            int nsr = 999999999;
+            int employerQtty = counters[0];
+            int registryQtty = counters[1];
+            int dateTimeQtty = counters[2];
+            int employeeQtty = counters[3];
+
+            sprintf(trailer, "%09d%09d%09d%09d%09d%d\r\n",
+                    nsr,
+                    employerQtty,
+                    registryQtty,
+                    dateTimeQtty,
+                    employeeQtty,
+                    9);
+
+            if (strlen(trailer) != 48) //46 + \r\n
+                return ERROR;
+
+            fseek(file, 0, SEEK_END); //posicionando no fim do arquivo
+            fwrite(trailer, 1, strlen(trailer), file);
+            fflush(file);
+            return OK;
+        }
+    } catch (...) {
+
+    }
+    return ERROR;
+}
+
+int AfdManager::exec() {
+    int result = ERROR;
+    this->status = ERROR;
+    try {
+        this->setPriority(SCHED_RR, THREAD_HIGH_PRIORITY);
+        if (dir.compare("") != 0) {
+            //Armazenando em log
+            printf("Armazenando em log\n");
+            logger->writeData("Salvando AFD no diretório: ");
+            logger->writeLineData(dir.c_str());
+
+            char msg[33] = MSG_AFD; //mensagem de gravação
+
+            printf("limpando display\n");
+            display->clearDsp();
+#ifdef PRISMA_DISPLAY_128X64
+            //((InterfaceDisplay128x64*) display)->
+#else
+            ((InterfaceDisplay16x2*) display)->print(msg, 0, 0);
+#endif
+
+            stringstream afdFile;
+            afdFile << dir << "AFD" << configuration->getNrRep().c_str() <<
+                    ".TXT";
+
+            //abrindo arquivo afd - reescreve o arquivo que já existe
+            FILE* file = fopen(afdFile.str().c_str(), "w+");
+            if (file != 0) { //verifica se arquivo foi aberto corretamente
+                string firstEventDateTime = "";
+                string lastEventDateTime = "";
+                int evtQtty = 0; //quantidade de eventos na MRP
+                int trys = 0; //contador de tentativas
+                int counters[4]; //contador de eventos
+
+                //inicializando contadores
+                for (int i = 0; i < 4; i++)
+                    counters[i] = 0;
+
+                logger->writeData("Arquivo AFD aberto: ");
+                logger->writeLineData(afdFile.str().c_str());
+                do { //recebendo quantidade para calcular próximo NSR                    
+                    result = mrpManager->receiveQttyEvents(&evtQtty);
+                } while ((result != MRP_ERROR_NONE) && (++trys < DEF_TRYS));
+
+                if (result == MRP_ERROR_NONE) {
+                    int readedEvents = 0; //eventos lidos
+                    int readedBytes = 0; //bytes lidos
+                    string events = ""; //armazena os eventos lidos
+
+                    int totalReaded = 0;
+                    int position = 0; //posição de memória - 0
+                    int initPosition = 0; //posição inicial de leitura
+                    int error = 0;
+
+                    //Gravando cabeçalho inicial
+                    updateHeader(file, "00000000", "00000000");
+
+                    sprintf(msg, MSG_OPERATION_PROGRESS,
+                            ((readedEvents + 1) * 100) / evtQtty);
+#ifdef PRISMA_DISPLAY_128X64
+                    //((InterfaceDisplay128x64*) display)->
+#else
+                    display->clearDsp();
+                    ((InterfaceDisplay16x2*) display)->print(MSG_AFD, 0, 0);
+                    ((InterfaceDisplay16x2*) display)->print(msg, 1, 0);
+#endif
+
+                    while ((error < DEF_TRYS) && (totalReaded < evtQtty)
+                            && (!this->terminated)) {
+                        printf("Iniciando leitura\n");
+                        logger->writeLineData("Iniciando leitura");
+                        result = mrpManager->readEvent(position,
+                                PACKAGE_SIZE, &initPosition, &readedEvents,
+                                &readedBytes, events);
+                        if (result == OK) {
+                            error = 0;
+                            logger->writeLineData("finalizou leitura");
+                            printf("Foram lidos %d eventos\n", readedEvents);
+                            if (readedEvents == 0) break; //terminou leitura
+                            //verificando arquivo de destino
+                            if (access(afdFile.str().c_str(), F_OK) != OK) {
+                                result = ERROR;
+                                break;
+                            }
+                            if (readedEvents > 0) { //gravando dados
+                                int written = fwrite(events.c_str(), 1,
+                                        events.length(), file);
+                                if (events.length() != written) {
+                                    result = ERROR;
+                                    break;
+                                }
+                                fflush(file);
+                            }
+                            position += readedBytes; //incrementando posição
+                            totalReaded += readedEvents; //atualizando lidos
+
+                            //carregando informações do registro
+                            int idx = 0;
+                            for (int i = 0; i < readedEvents; i++) {
+                                idx += 9; //pulando nsr
+                                int idReg = charToInt(events.at(idx++));
+                                if (firstEventDateTime.empty()) {
+                                    //obtendo data hora inicial dos registros
+                                    firstEventDateTime = events.substr(idx, 8);
+                                }
+                                if (totalReaded == evtQtty) {
+                                    //obtendo data hora final dos registros
+                                    lastEventDateTime = events.substr(idx, 8);
+                                }
+                                switch (idReg) {
+                                    case MRP_ID_EMPLOYER:
+                                    {
+                                        counters[MRP_ID_EMPLOYER - 2]++;
+                                        idx += MRP_AFD_LENGTH_EMPLOYER - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_REGISTRY:
+                                    {
+                                        counters[MRP_ID_REGISTRY - 2]++;
+                                        idx += MRP_AFD_LENGTH_REGISTRY - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_DATETIME:
+                                    {
+                                        counters[MRP_ID_DATETIME - 2]++;
+                                        idx += MRP_AFD_LENGTH_DATETIME - 10;
+                                    }
+                                        break;
+                                    case MRP_ID_EMPLOYEE:
+                                    {
+                                        counters[MRP_ID_EMPLOYEE - 2]++;
+                                        idx += MRP_AFD_LENGTH_EMPLOYEE - 10;
+                                        break;
+                                    }
+                                }
+                                idx += 2;
+                            }
+
+                            //atualizando informação no display
+                            sprintf(msg, MSG_OPERATION_PROGRESS,
+                                    (totalReaded * 100) / evtQtty);
+#ifdef PRISMA_DISPLAY_128X64
+                            //((InterfaceDisplay128x64*) display)->
+#else
+                            ((InterfaceDisplay16x2*) display)->print(msg, 1, 0);
+#endif
+                        } else {
+                            error++; //incrementa erro (3 consecutivos = break)
+                        }
+                        //Enquanto não teve 3 erros consecutivos e não coletou tudo.
+                    }
+                } else {
+                    logger->writeLineData("Erro ao comunicar com MRP");
+                }
+                if (result == MRP_ERROR_NONE)
+                    result = OK;
+                if (result == OK) { //atualizando cabeçalho
+                    logger->writeLineData("Salvando cabeçalho");
+                    result = updateHeader(file, firstEventDateTime,
+                            lastEventDateTime);
+                    if (result == OK) {
+                        logger->writeLineData("Salvando trailer");
+                        result = writeTrailer(file, counters);
+                    }
+                }
+                fclose(file); //Fechando arquivo
+                if (result != OK) { //remove arquivo criado
+                    logger->writeLineData("Erro ao salvar AFD");
+                    unlink(afdFile.str().c_str());
+                }
+            } else {
+                logger->writeLineData("Erro ao abrir arquivo AFD");
+                printf("Erro ao abrir afd.txt\n");
+            }
+        }
+
+        if (this->terminated) {
+            result = ERROR;
+        }
+        stringstream wavePath;
+        wavePath << DIR_HOME << DIR_PRISMA << DIR_AUDIO << AUDIO_AFD;
+        wave->play((char*) wavePath.str().c_str());
+        if (result == OK) {
+#ifdef PRISMA_DISPLAY_128X64
+            //((InterfaceDisplay128x64*) display)->
+#else
+            display->clearDsp();
+            ((InterfaceDisplay16x2*) display)->print(MSG_AFD_OK, 0, 0);
+            sleep(2);
+#endif
+        } else {
+#ifdef PRISMA_DISPLAY_128X64
+            //((InterfaceDisplay128x64*) display)->
+#else
+            display->clearDsp();
+            ((InterfaceDisplay16x2*) display)->print(MSG_AFD_ERROR, 0, 0);
+            sleep(2);
+#endif
+        }
+    } catch (...) {
+
+    }
+    //Alterando estado da thread novamente para normal
+    this->setPriority(SCHED_OTHER, THREAD_NORMAL_PRIORITY);
+    this->status = result;
+    this->running = false;
+    logger->writeLineData("Finalizando thread AFD");
+    this->detach();
+    return result;
+}
+
+/*----------------------------------===-----------------------------------------
+ *
+ *                             MÉTODOS PÚBLICOS
+ *
+ *----------------------------------===---------------------------------------*/
+
+int AfdManager::generate(string dir) {
+    this->dir = dir;
+    if (!this->isRunning()) {
+        terminated = false;
+        running = true;
+        this->start();
+    }
+    return OK;
+}
+
+void AfdManager::terminate() {
+    this->terminated = true;
+}
+
+bool AfdManager::isRunning() {
+    return this->running;
+}
+
+int AfdManager::getStatus() {
+    return this->status;
+}

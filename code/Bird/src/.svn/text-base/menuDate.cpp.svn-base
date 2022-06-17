@@ -1,0 +1,23 @@
+/* 
+ * File:   MenuData.cpp
+ * Author: eduardo
+ * 
+ * Created on 8 de Junho de 2010, 14:49
+ */
+
+#include "../include/menuData.h"
+
+MenuData::MenuData(Cache* keyboardCache, InterfaceDisplay16x2* display16x2)
+    : Menu(keyboardCache, display16x2) {
+
+}
+
+MenuData::MenuData(Cache* keyboardCache, InterfaceDisplay128x64*
+    display128x64) : Menu(keyboardCache, display128x64) {
+
+}
+
+
+MenuData::~MenuData() {
+}
+

@@ -1,0 +1,81 @@
+open wave running 
+reading /home/davi/Mestrado/cpp/Bird/Util/waves/arnie.wav 
+first 4 bytes should be RIFF, <RIFF>
+file has 21420 +8 bytes 
+should be WAVE, <WAVE>
+should be fmt, <fmt >
+block has 16 more bytes 
+compression code = 1 
+channels = 1 
+rate = 22050  
+avg rate = 22050 
+blockalign = 1  
+bits per sample = 8 
+bytes left in fmt = 0 
+should be data, <data>
+chunk has 21371 more bytes 
+44 bytes read so far 
+Imprimindo...
+frequency[1] = 0.000000	db[1] = -42.847012
+frequency[2] = -42.846985	db[2] = -45.136517
+frequency[3] = -45.136505	db[3] = -48.469585
+frequency[4] = -48.469574	db[4] = -46.015751
+frequency[5] = -46.015747	db[5] = -48.134052
+frequency[6] = -48.134033	db[6] = -52.131336
+frequency[7] = -52.131317	db[7] = -52.168079
+frequency[8] = -52.168060	db[8] = -51.641342
+frequency[9] = -51.641327	db[9] = -50.263779
+frequency[10] = -50.263763	db[10] = -50.018616
+frequency[11] = -50.018616	db[11] = -51.614349
+frequency[12] = -51.614349	db[12] = -52.327656
+frequency[13] = -52.327637	db[13] = -53.562065
+frequency[14] = -53.562042	db[14] = -54.367104
+frequency[15] = -54.367096	db[15] = -54.886238
+frequency[16] = -54.886230	db[16] = -54.461578
+frequency[17] = -54.461578	db[17] = -54.763580
+frequency[18] = -54.763580	db[18] = -54.777527
+frequency[19] = -54.777527	db[19] = -55.178139
+frequency[20] = -55.178131	db[20] = -56.058220
+frequency[21] = -56.058197	db[21] = -56.367752
+frequency[22] = -56.367737	db[22] = -56.766113
+frequency[23] = -56.766113	db[23] = -56.336025
+frequency[24] = -56.335999	db[24] = -56.151756
+frequency[25] = -56.151733	db[25] = -57.389095
+frequency[26] = -57.389069	db[26] = -57.760773
+frequency[27] = -57.760773	db[27] = -57.295166
+frequency[28] = -57.295166	db[28] = -56.817959
+frequency[29] = -56.817932	db[29] = -57.605049
+frequency[30] = -57.605042	db[30] = -57.863644
+frequency[31] = -57.863617	db[31] = -58.072624
+frequency[32] = -58.072601	db[32] = -58.547375
+frequency[33] = -58.547363	db[33] = -58.752491
+frequency[34] = -58.752472	db[34] = -58.404972
+frequency[35] = -58.404968	db[35] = -58.202839
+frequency[36] = -58.202820	db[36] = -58.272434
+frequency[37] = -58.272430	db[37] = -58.460793
+frequency[38] = -58.460785	db[38] = -58.716316
+frequency[39] = -58.716309	db[39] = -59.524544
+frequency[40] = -59.524536	db[40] = -59.840069
+frequency[41] = -59.840057	db[41] = -60.050285
+frequency[42] = -60.050262	db[42] = -60.272617
+frequency[43] = -60.272614	db[43] = -60.197590
+frequency[44] = -60.197571	db[44] = -60.739758
+frequency[45] = -60.739746	db[45] = -61.034286
+frequency[46] = -61.034271	db[46] = -60.779945
+frequency[47] = -60.779938	db[47] = -61.416203
+frequency[48] = -61.416199	db[48] = -61.612427
+frequency[49] = -61.612427	db[49] = -61.141544
+frequency[50] = -61.141541	db[50] = -60.652798
+frequency[51] = -60.652771	db[51] = -61.206692
+frequency[52] = -61.206665	db[52] = -61.373154
+frequency[53] = -61.373138	db[53] = -61.824863
+frequency[54] = -61.824860	db[54] = -61.630718
+frequency[55] = -61.630707	db[55] = -61.949322
+frequency[56] = -61.949310	db[56] = -62.018799
+frequency[57] = -62.018799	db[57] = -62.195553
+frequency[58] = -62.195526	db[58] = -61.823353
+frequency[59] = -61.823334	db[59] = -61.776596
+frequency[60] = -61.776581	db[60] = -61.825432
+frequency[61] = -61.825409	db[61] = -61.984173
+frequency[62] = -61.984161	db[62] = -62.021992
+frequency[63] = -62.021973	db[63] = -61.834457
